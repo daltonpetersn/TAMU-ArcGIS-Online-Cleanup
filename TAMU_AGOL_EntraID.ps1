@@ -16,13 +16,13 @@ param(
 )
 
 # Import library for accessing TAMU Identification System
-Import-Module Microsoft.Graph.Users
-Connect-MgGraph -Scopes "User.Read.All"
+Import-Module Microsoft.Graph.Users 
+Connect-MgGraph -Scopes "User.Read.All" -NoWelcome
 
 Write-Host "input csv path: $($input_csv_path)"
 
-$input_csv = Import-Csv -Path $input_csv_path
-# $input_csv = Import-Csv -Path "./Migrate_Items/reports/OrganizationMembers_2026-03-31.csv"
+# $input_csv = Import-Csv -Path $input_csv_path
+$input_csv = Import-Csv -Path "./TAMU-ArcGIS-Online-Cleanup/reports/OrganizationMembers_2026-04-02.csv"
 
 
 # Initialize arrays for results
@@ -107,7 +107,7 @@ function Find-GroupMemberships {
     )
 
     try {
-        $groupMemberships = Get-MgUserMemberOf -UserId $email -Property id -ErrorAction Stop | Select-Object -ExpandProperty id
+        $groupMemberships = Get-MgUserMemberOf -UserId $email -Property id -ErrorAction Stop | Select-Object -ExpandProperty Id
     }
     catch {
         Write-Host "Error getting groups: $($_.Exception.Message)"
@@ -151,7 +151,7 @@ $input_csv | ForEach-Object {
     $altEmail = Find-AlternateEmail -email $email -formattedEmail $formattedEmail
     $entraid_lookup = Get-EntraIDStatus -email $email -formattedEmail $formattedEmail -altEmail $altEmail
     if ($entraid_lookup[0] -eq 1) {
-        Write-Host "$email found in EntraID. Formatted email: $formattedEmail , Alternate Email = $altEmail"
+        Write-Host "$email found in EntraID as $workingEmail. Formatted email: $formattedEmail , Alternate Email = $altEmail"
         $entraid_status = $entraid_lookup[0]
         $userDepartment = $entraid_lookup[1]
         $workingEmail = $entraid_lookup[2]  # The email that actually worked
@@ -192,8 +192,8 @@ $input_csv | ForEach-Object {
 }
 
 # Export results
-$UserTable | Export-Csv -Path ".\reports\AGOL_EntraID_Status.csv" -NoTypeInformation
-$errorUsers | Out-File -FilePath ".\reports\error_hist_users.txt"
+$UserTable | Export-Csv -Path ".\TAMU-ArcGIS-Online-Cleanup\reports\AGOL_EntraID_Status.csv" -NoTypeInformation
+$errorUsers | Out-File -FilePath ".\TAMU-ArcGIS-Online-Cleanup\reports\error_hist_users.txt"
 
 Write-Host "Processing complete:"
 Write-Host "Users Processed: $($UserTable.Count)"

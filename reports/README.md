@@ -1,0 +1,1 @@
+This is a Directory to hold the most recent AGOL item and member reports as well as EntraID status tables that are generated.
