@@ -4,7 +4,8 @@
 
 from arcgis.gis import GIS
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, Float
+from sqlalchemy.dialects.mssql import NVARCHAR, DATETIME, BIT
 from dotenv import load_dotenv
 from os import getenv
 import subprocess
@@ -31,6 +32,84 @@ os.makedirs(os.path.join(SCRIPT_DIR, 'reports'), exist_ok=True)
 # FUNCTIONS
 ########################################################################################################################
 
+def get_report_sql_dtypes(report_name):
+    """Function to define and apply SQL table data types for AGOL reports"""
+    if 'OrganizationItems' in report_name:
+        return {
+            'Title': NVARCHAR(255),
+            'Item ID': NVARCHAR(255),
+            'Item Url': NVARCHAR(255),
+            'Item Type': NVARCHAR(255),
+            'Date Created': DATETIME(),
+            'Date Modified' : DATETIME(),
+            'Content Category' : NVARCHAR(),
+            'View Counts' : Float(),
+            'Owner' : NVARCHAR(255),
+            'File Storage Size': Float(),
+            'Feature Storage Size' : Float(),
+            'Share Level' : NVARCHAR(255),
+            '# of Groups shared with' : Float(),
+            'Tags' : NVARCHAR(),
+            'Number of Comments': Float(),
+            'Is Hosted Service' : BIT(),
+            'Date Last Viewed' : DATETIME(),
+            'In Recycle Bin' : NVARCHAR(255),
+            'updated_date': DATETIME()
+        }
+    elif 'OrganizationMembers' in report_name:
+        return {
+            'Username': NVARCHAR(255),
+            'Name': NVARCHAR(255),
+            'Email': NVARCHAR(255),
+            'Profile Visibility': NVARCHAR(255),
+            'My Esri Access': NVARCHAR(255),
+            'UserType': NVARCHAR(255),
+            'Role': NVARCHAR(255),
+            'Available Credts': Float(),
+            'Assigned Credits': Float(),
+            'Last Login Date': DATETIME(),
+            'Date Created' : DATETIME(),
+            'Add-On Apps' : NVARCHAR(),
+            '# of Items Owned' : Float(),
+            '# of Groups Owned' : Float(),
+            '# of Groups Total' : Float(),
+            'Login Type' : NVARCHAR(255),
+            'Member Account Status' : NVARCHAR(255),
+            'Verified Email Status' : BIT(),
+            'Multifactor Authentication Exempt' : NVARCHAR(255),
+            'Member Categories' : NVARCHAR(),
+            'Multifactor Authentication' : NVARCHAR(255),
+            'updated_date' : DATETIME()
+        }
+    elif 'EntraID_Status' in report_name:
+        return {
+            'Username': NVARCHAR(255),
+            'Email' : NVARCHAR(255),
+            'Name' : NVARCHAR(255),
+            'EmailsTried' : NVARCHAR(),
+            'WorkingEmail' : NVARCHAR(255),
+            'UserDepartment' : NVARCHAR(255),
+            'ManagerDepartment' : NVARCHAR(255),
+            'EntraID_Status': BIT(),
+            'ManagerEmail' : NVARCHAR(255),
+            'updated_date': DATETIME(),
+            'Groups': NVARCHAR()
+        }
+
+def preprocess_dataframe_for_sql(df, dtype_map):
+    """Convert datetime and numeric columns to proper types before SQL upload."""
+    df = df.copy()
+    for col, dtype_obj in dtype_map.items():
+        if col in df.columns:
+            dtype_str = str(dtype_obj)
+            if 'DATETIME' in dtype_str or 'DATE' in dtype_str:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+            elif 'FLOAT' in dtype_str or 'Float' in dtype_str:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            elif 'BIT' in dtype_str:
+                df[col] = df[col].astype('bool', errors='ignore') if df[col].dtype != 'bool' else df[col]
+    return df
+
 
 def fetch_reports():
     "Fetches reports from ArcGIS Online, saves them as CSV's, and returns them as a pandas DataFrame."
@@ -56,8 +135,8 @@ def fetch_reports():
     member_report_df['updated_date'] = CURRENT_DATE
 
     # Save the DataFrames as CSV files
-    item_report_title = item_report.title.replace("/", "-")
-    member_report_title = member_report.title.replace("/", "-")
+    item_report_title = item_report.title.replace("/", "_")
+    member_report_title = member_report.title.replace("/", "_")
     item_report_df.to_csv(os.path.join(SCRIPT_DIR, 'reports', f'{item_report_title}.csv'), index=False)
     member_report_df.to_csv(os.path.join(SCRIPT_DIR, 'reports', f'{member_report_title}.csv'), index=False)
 
@@ -67,31 +146,48 @@ def fetch_reports():
     member_report_csv_path = f'./reports/{member_report_title}.csv'
     item_report_csv_path = f'./reports/{item_report_title}.csv'
 
-    return item_report_df, member_report_df, item_report_csv_path, member_report_csv_path, item_report_title, member_report_title
+    return (
+        item_report_df,
+        member_report_df,
+        item_report_csv_path,
+        member_report_csv_path,
+        item_report_title,
+        member_report_title,
+    )
 
 
 def Collect_EntraID_Information(member_report_csv_path):
     "Calls TAMU_AGOL_EntraID.ps1 to collect EntraID information for each user in the member report and write to a CSV."
 
-    # # Run the PowerShell script to collect EntraID information for each user in the member report and write to CSV
-    # print("executing TAMU_AGOL_EntraID.ps1...")
-    # result = subprocess.run(
-    #     [
-    #     'powershell', 
-    #     '-ExecutionPolicy', 'Bypass',
-    #     '-File', os.path.join(SCRIPT_DIR, 'TAMU_AGOL_EntraID.ps1'),
-    #     '-input_csv_path', member_report_csv_path,
-    #     ], 
-    #     capture_output=True, 
-    #     text=True,
-    #     cwd = SCRIPT_DIR
-    #     )
+    # Run the PowerShell script to collect EntraID information for each user in the member report and write to CSV
+    result = subprocess.Popen(
+    [
+    'powershell', 
+    '-ExecutionPolicy', 'Bypass',
+    '-File', os.path.join(SCRIPT_DIR, 'TAMU_AGOL_EntraID.ps1'),
+    '-input_csv_path', member_report_csv_path,
+    ], 
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    cwd=SCRIPT_DIR
+    )
 
-    # print ("PowerShell script output:"
-    #           f"\n{result.stdout}")
+    output_lines = []
+    for line in result.stdout:
+        print(line, end='')  # Print to terminal in real-time
+        output_lines.append(line)
 
-    # if result.returncode != 0:
-    #     print(f"Error executing PowerShell script: {result.stderr}")
+    result.wait()
+    stderr_output = result.stderr.read() if result.stderr else ""
+
+    # Now you have both
+    all_output = ''.join(output_lines)
+    if stderr_output:
+        print(f"Errors: {stderr_output}")
+
+    if result.returncode != 0:
+        print(f"Error executing PowerShell script: {result.stderr}")
     
     # Add date to each row in the csv file
     print("adding updated_date to EntraID status report...")
@@ -103,22 +199,28 @@ def Collect_EntraID_Information(member_report_csv_path):
 def Upload_Tables_to_Database(item_report_df, member_report_df, entraid_status_path, item_report_title, member_report_title):
     "Uploads the item and member report DataFrames to the database."
 
-    # Upload the item report DataFrame to the database
+    # Preprocess and upload the item report DataFrame
     print("uploading item report to database...")
-    item_report_df.to_sql(item_report_title, engine, if_exists='replace', index=False)
+    item_dtypes = get_report_sql_dtypes(item_report_title)
+    item_report_df = preprocess_dataframe_for_sql(item_report_df, item_dtypes)
+    item_report_df.to_sql(item_report_title, engine, if_exists='replace', index=False, dtype=item_dtypes)
 
-    # Upload the member report DataFrame to the database
+    # Preprocess and upload the member report DataFrame
     print("uploading member report to database...")
-    member_report_df.to_sql(member_report_title, engine, if_exists='replace', index=False)
+    member_dtypes = get_report_sql_dtypes(member_report_title)
+    member_report_df = preprocess_dataframe_for_sql(member_report_df, member_dtypes)
+    member_report_df.to_sql(member_report_title, engine, if_exists='replace', index=False, dtype=member_dtypes)
 
-    # Upload the EntraID status CSV to the database
+    # Preprocess and upload the EntraID status CSV
     print("uploading EntraID status report to database...")
     entraid_status_df = pd.read_csv(entraid_status_path)
-    entraid_status_df.to_sql('EntraID_Status', engine, if_exists='replace', index=False)
+    entraid_dtypes = get_report_sql_dtypes('AGOL_EntraID_Status')
+    entraid_status_df = preprocess_dataframe_for_sql(entraid_status_df, entraid_dtypes)
+    entraid_status_df.to_sql('AGOL_EntraID_Status', engine, if_exists='replace', index=False, dtype=entraid_dtypes)
 
 def Catalog_and_Cleanup():
     "Adds data from previous reports to history tables and deletes old reports from the database."
-    print("cataloging previous reports and clearing previous reports...")
+    print("cataloging and clearing previous reports...")
 
     # Collect names of previous reports from the database
     with engine.connect() as connection:
@@ -147,10 +249,10 @@ def Catalog_and_Cleanup():
                 check_result = connection.execute(text(f"SELECT OBJECT_ID('{item_history_table_title}')"))
                 exists = check_result.fetchone()
                 if exists[0] is None:
-                    connection.execute(text(f"SELECT * INTO {item_history_table_title} FROM {table_name}"))
+                    connection.execute(text(f"SELECT * INTO [{item_history_table_title}] FROM [{table_name}]"))
                 else:
-                    connection.execute(text(f"INSERT INTO {item_history_table_title} SELECT * FROM {table_name}"))
-                connection.execute(text(f"DROP TABLE {table_name}"))
+                    connection.execute(text(f"INSERT INTO [{item_history_table_title}] SELECT * FROM [{table_name}]"))
+                connection.execute(text(f"DROP TABLE [{table_name}]"))
                 connection.commit()  # Commit after each operation
         else:
             print("No previous item reports found in the database.")
@@ -162,10 +264,10 @@ def Catalog_and_Cleanup():
                 check_result = connection.execute(text(f"SELECT OBJECT_ID('{member_history_table_title}')"))
                 exists = check_result.fetchone()
                 if exists[0] is None:
-                    connection.execute(text(f"SELECT * INTO {member_history_table_title} FROM {table_name}"))
+                    connection.execute(text(f"SELECT * INTO [{member_history_table_title}] FROM [{table_name}]"))
                 else:
-                    connection.execute(text(f"INSERT INTO {member_history_table_title} SELECT * FROM {table_name}"))
-                connection.execute(text(f"DROP TABLE {table_name}"))
+                    connection.execute(text(f"INSERT INTO [{member_history_table_title}] SELECT * FROM [{table_name}]"))
+                connection.execute(text(f"DROP TABLE [{table_name}]"))
                 connection.commit()
         else:
             print("No previous member reports found in the database.")   
@@ -176,29 +278,37 @@ def Catalog_and_Cleanup():
             check_result = connection.execute(text(f"SELECT OBJECT_ID('{entraid_status_history_table_title}')"))
             exists = check_result.fetchone()
             if exists[0] is None:
-                connection.execute(text(f"SELECT * INTO {entraid_status_history_table_title} FROM {table_name}"))
+                connection.execute(text(f"SELECT * INTO [{entraid_status_history_table_title}] FROM [{table_name}]"))
             else:
-                connection.execute(text(f"INSERT INTO {entraid_status_history_table_title} SELECT * FROM {table_name}"))
-            connection.execute(text(f"DROP TABLE {table_name}"))
+                connection.execute(text(f"INSERT INTO [{entraid_status_history_table_title}] SELECT * FROM [{table_name}]"))
+            connection.execute(text(f"DROP TABLE [{table_name}]"))
             connection.commit()
         else:
             print("No previous entraID status reports found in the database.")
 
     # clear reports directory
-    print("clearing reports directory...")
-    for filename in os.listdir(os.path.join(SCRIPT_DIR, 'reports')):
-        file_path = os.path.join(SCRIPT_DIR, 'reports', filename)
-        try:
-            if os.path.isfile(file_path):
-                os.unlink(file_path)
-        except Exception as e:
-            print(f"Error deleting file {file_path}: {e}")
+    # print("clearing reports directory...")
+    # for filename in os.listdir(os.path.join(SCRIPT_DIR, 'reports')):
+    #     file_path = os.path.join(SCRIPT_DIR, 'reports', filename)
+    #     try:
+    #         if os.path.isfile(file_path):
+    #             os.unlink(file_path)
+    #     except Exception as e:
+    #         print(f"Error deleting file {file_path}: {e}")
 
 def main():
-    # Catalog_and_Cleanup()
+    Catalog_and_Cleanup()
     item_report_df, member_report_df, item_report_csv_path, member_report_csv_path, item_report_title, member_report_title = fetch_reports()
     Collect_EntraID_Information(member_report_csv_path)
-    Upload_Tables_to_Database(item_report_df, member_report_df, os.path.join(SCRIPT_DIR, 'reports', 'AGOL_EntraID_Status.csv'), item_report_title, member_report_title)    
+    Upload_Tables_to_Database(
+        item_report_df,
+        member_report_df,
+        os.path.join(SCRIPT_DIR, 'reports', 'AGOL_EntraID_Status.csv'),
+        item_report_title,
+        member_report_title,
+    )
+
+    print("script execution complete.")    
 
 
 # EXECUTION

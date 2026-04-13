@@ -1,13 +1,10 @@
 # File Name: Identify_Historical_AGOL_Users.p1
 # Author: Dalton Peterson
 # Date: 03/26/2026
+# Requires: Powershell 7.0+
 # Description: This file takes an input report from ArcGIS Online (AGOL) and produces a csv of all members with a 
 #              fields that identify the user's current affiliation w/ TAMU and their manager (if exists)
 
-
-# TAMU Group ID's for reference
-# Current Students: f7b90ce2-1842-4830-a8a3-8c22705a2e90
-# Current Employees: 5da07dc2-1f1d-4120-91e5-56687befff44
 
 
 # collect csv
@@ -24,176 +21,169 @@ Write-Host "input csv path: $($input_csv_path)"
 # $input_csv = Import-Csv -Path $input_csv_path
 $input_csv = Import-Csv -Path "./TAMU-ArcGIS-Online-Cleanup/reports/OrganizationMembers_2026-04-02.csv"
 
-
-# Initialize arrays for results
 $UserTable = @()
-$errorUsers = @()
+$ErrorUsers = @()
 
-# Functions
-function Format-Email {
-    param(
-        [string]$username
-    )
-    # strip any trailing `_tamu` suffix that was appended
-    $username = $username -replace '_tamu$', ''
+$UserTable = $input_csv | ForEach-Object {
+    Import-Module Microsoft.Graph.Users
+    Connect-MgGraph -Scopes "User.Read.All" -NoWelcome
 
-    # if there's an @ sign, just keep the local part before it
-    if ($username -match '@') {
-        $username = $username.Split('@')[0]
+    function Format-Email {
+        param([string]$username)
+        $username = $username -replace '_tamu$', ''
+        if ($username -match '@') { $username = $username.Split('@')[0] }
+        return "$username@tamu.edu"
     }
 
-    # normalize to tamu.edu domain
-    $formattedEmail = "$username@tamu.edu"
+    function Get-EntraIDStatus {
+        param([array]$emailsToTry)
+        $emailsToTry = @($emailsToTry) | Where-Object { $_ -and $_.Trim() -ne "" } | Select-Object -Unique
+        foreach ($emailToTry in $emailsToTry) {
+            try {
+                $user = Get-MgUser -UserId $emailToTry -Property Department, DisplayName -ErrorAction Stop
+                $userdepartment = if ($user.Department) { $user.Department } else { "" }
+                return 1, $userdepartment, $emailToTry
+            }
+            catch {
+                Write-Host "Failed to find user with email: $emailToTry"
+            }
+        }
+        return 0, "", ""
+    }
 
-    return $formattedEmail
-}
-
-function Get-EntraIDStatus {
-    param(
-        [string]$email,
-        [string]$formattedEmail,
-        [string]$altEmail
-    )
-
-    $emailsToTry = @($email, $formattedEmail, $altEmail) | Where-Object { $_ -and $_.Trim() -ne "" } | Select-Object -Unique
-
-    foreach ($emailToTry in $emailsToTry) {
+    function Find-ManagerEmail {
+        param([string]$email)
         try {
-            $user = Get-MgUser -UserId $emailToTry -Property Department, DisplayName -ErrorAction Stop
-            $userdepartment = if ($user.Department) { $user.Department } else { "" }
-            Write-Host "Found user: $($user.DisplayName) with department: '$userdepartment'"
-            return 1, $userdepartment, $emailToTry  # Return status, department, and working email
+            $manager = Get-MgUserManager -UserId $email -ErrorAction Stop
+            if ($manager) {
+                $manageruser = Get-MgUser -UserId $manager.Id -Property Mail, Department, DisplayName -ErrorAction Stop
+                $managerdepartment = if ($manageruser.Department) { $manageruser.Department } else { "" }
+                $managerEmail = if ($manageruser.Mail) { $manageruser.Mail } else { "" }
+                Write-Host "Found manager: $($manageruser.DisplayName) with email: $managerEmail"
+            }
+            else {
+                $managerEmail = ""; $managerdepartment = ""
+            }
         }
         catch {
-            Write-Host "Failed to find user with email: $emailToTry"
-            # Continue to next email
+            Write-Host "Error getting manager: $($_.Exception.Message)"
+            $managerEmail = ""; $managerdepartment = ""
         }
+        return $managerEmail, $managerdepartment
     }
 
-    return 0, "", ""  # Not found
-}
-
-function Find-ManagerEmail {
-    param(
-        [string]$email
-    )
-
-    try {
-        $manager = Get-MgUserManager -UserId $email -ErrorAction Stop
-        if ($manager) {
-            $manageruser = Get-MgUser -UserId $manager.Id -Property Mail, Department, DisplayName -ErrorAction Stop
-            $managerdepartment = if ($manageruser.Department) { $manageruser.Department } else { "" }
-            $managerEmail = if ($manageruser.Mail) { $manageruser.Mail } else { "" }
-            Write-Host "Found manager: $($manageruser.DisplayName) with email: $managerEmail"
-        }
-        else {
-            Write-Host "No manager found for user"
-            $managerEmail = ""
-            $managerdepartment = ""
-        }
-    }
-    catch {
-        Write-Host "Error getting manager: $($_.Exception.Message)"
-        $managerEmail = ""
-        $managerdepartment = ""
-    }
-
-    return $managerEmail, $managerdepartment
-}
-
-function Find-GroupMemberships {
-    param(
-        [string]$email
-    )
-
-    try {
-        $groupMemberships = Get-MgUserMemberOf -UserId $email -Property id -ErrorAction Stop | Select-Object -ExpandProperty Id
-    }
-    catch {
-        Write-Host "Error getting groups: $($_.Exception.Message)"
-        $groupMemberships = ""
-    }
-
-    return $groupMemberships
-}
-
-function Find-AlternateEmail {
-    param(
-        [string]$email,
-        [string]$formattedEmail
-    )
-    try {
-        $alternateMatch = Get-MgUser -Filter "otherMails/any(x:x eq '$email')" -Property id, displayName, userPrincipalName -ErrorAction Stop
-        $altEmail = $alternateMatch.UserPrincipalName
-    }
-    catch {
+    function Find-GroupMemberships {
+        param([string]$email)
         try {
-            $alternateMatch = Get-MgUser -Filter "otherMails/any(x:x eq '$formattedEmail')" -Property id, displayName, userPrincipalName -ErrorAction Stop
-            $altEmail = $alternateMatch.UserPrincipalName
+            $groupMemberships = Get-MgUserMemberOf -UserId $email -Property id -ErrorAction Stop | Select-Object -ExpandProperty Id
         }
         catch {
-            $altEmail = ""
+            Write-Host "Error getting groups: $($_.Exception.Message)"
+            $groupMemberships = ""
         }
+        return $groupMemberships
     }
 
-    return $altEmail
-}
+    function Find-AlternateEmail {
+        param([array]$emailstotry)
 
-
-# Process each AGOL member
-$input_csv | ForEach-Object {
+        foreach ($emailToCheck in $emailstotry) {
+            if (-not $emailToCheck -or $emailToCheck.Trim() -eq "") { continue }
+            try {
+                $alternateMatch = Get-MgUser -Filter "otherMails/any(x:x eq '$emailToCheck')" -Property id, displayName, userPrincipalName -ErrorAction Stop
+                $altEmail = $alternateMatch.UserPrincipalName
+                return $altEmail
+            }
+            catch {
+                # Continue to next email
+            }
+        }
+        return ""
+    }
 
     # Initialize variables for analysis
     $username = $_.Username
     $email = $_.Email
     $name = $_.Name
-    $formattedEmail = Format-Email -username $username
-    $altEmail = Find-AlternateEmail -email $email -formattedEmail $formattedEmail
-    $entraid_lookup = Get-EntraIDStatus -email $email -formattedEmail $formattedEmail -altEmail $altEmail
+
+    $formattedEmail1 = Format-Email -username $username
+    $formattedEmail2 = Format-Email -username $email
+    $emailstotry = @($email, $formattedEmail1, $formattedEmail2) | Select-Object -Unique
+
+    $altEmail = Find-AlternateEmail -emailstotry $emailstotry
+    if ($altEmail -and $altEmail.Trim() -ne "") {
+        $emailstotry += $altEmail
+    }
+    $entraid_lookup = Get-EntraIDStatus -emailsToTry $emailstotry
+
     if ($entraid_lookup[0] -eq 1) {
-        Write-Host "$email found in EntraID as $workingEmail. Formatted email: $formattedEmail , Alternate Email = $altEmail"
+        Write-Host "$email found in EntraID as $($entraid_lookup[2]). Department: $($entraid_lookup[1])"
         $entraid_status = $entraid_lookup[0]
         $userDepartment = $entraid_lookup[1]
-        $workingEmail = $entraid_lookup[2]  # The email that actually worked
-
-        # Use the working email for manager and group lookups
+        $workingEmail = $entraid_lookup[2]
+        
         $managerInfo = Find-ManagerEmail -email $workingEmail
         $managerEmail = $managerInfo[0]
         $managerDepartment = $managerInfo[1]
+
         $groupMemberships = Find-GroupMemberships -email $workingEmail
-        Write-Host "Manager: $managerEmail , Groups: $groupMemberships , Department: $userDepartment"
+        $groupMemberships = if ($groupMemberships) { $groupMemberships -join ", " } else { "" }
+        $groupMemberships = $groupMemberships.Substring(0, [math]::Min(1000, $groupMemberships.Length))
     }
     else {
-        Write-Host "$email not found in any form in EntraID, Formatted Email: $formattedEmail"
         $entraid_status = 0
         $managerEmail = ""
         $managerDepartment = ""
         $userDepartment = ""
         $groupMemberships = ""
+        $workingEmail = ""
     }
 
     try {
-        $UserTable += [PSCustomObject]@{
+        $emailsTried = ($emailstotry -join ", ")
+        $emailsTried = $emailsTried.Substring(0, [math]::Min(500, $emailsTried.Length))
+        [PSCustomObject]@{
             Username          = $username
             Email             = $email
             Name              = $name
-            FormattedEmail    = $formattedEmail
-            AlternateEmail    = $altEmail
+            EmailsTried       = $emailsTried
             EntraID_Status    = $entraid_status
             ManagerEmail      = $managerEmail
             ManagerDepartment = $managerDepartment
             UserDepartment    = $userDepartment
+            WorkingEmail      = $workingEmail
             Groups            = $groupMemberships
+            ErrorUser         = ""
         }
     }
     catch {
-        $errorUsers += $username
+        [PSCustomObject]@{
+            Username          = $username
+            Email             = $email
+            Name              = $name
+            EmailsTried       = ""
+            EntraID_Status    = 0
+            ManagerEmail      = ""
+            ManagerDepartment = ""
+            UserDepartment    = ""
+            WorkingEmail      = ""
+            Groups            = ""
+            ErrorUser         = $username
+        }
     }
+
 }
 
+$ErrorUsers = $UserTable | Where-Object { $_.ErrorUser } | Select-Object -ExpandProperty ErrorUser
+$UserTable = $UserTable | Select-Object -ExcludeProperty ErrorUser
+
+
 # Export results
+# $UserTable | Export-Csv -Path ".\reports\AGOL_EntraID_Status.csv" -NoTypeInformation
+# $ErrorUsers | Out-File -FilePath ".\reports\error_hist_users.txt"
+
 $UserTable | Export-Csv -Path ".\TAMU-ArcGIS-Online-Cleanup\reports\AGOL_EntraID_Status.csv" -NoTypeInformation
-$errorUsers | Out-File -FilePath ".\TAMU-ArcGIS-Online-Cleanup\reports\error_hist_users.txt"
+$ErrorUsers | Out-File -FilePath ".\TAMU-ArcGIS-Online-Cleanup\reports\error_hist_users.txt"
 
 Write-Host "Processing complete:"
 Write-Host "Users Processed: $($UserTable.Count)"
