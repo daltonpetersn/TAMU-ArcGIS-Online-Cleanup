@@ -2,104 +2,218 @@
 # Author: Dalton Peterson
 # Date: 03/26/2026
 # Requires: Powershell 7.0+
-# Description: This file takes an input report from ArcGIS Online (AGOL) and produces a csv of all members with a 
+# Description: This file takes an input report from ArcGIS Online (AGOL) and produces a csv of all members with a
 #              fields that identify the user's current affiliation w/ TAMU and their manager (if exists)
-
-
 
 # collect csv
 param(
     [string]$input_csv_path
 )
 
+# Ensure relative paths resolve from the script directory.
+$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+Set-Location -Path $scriptDir
+
+
 # Import library for accessing TAMU Identification System
-Import-Module Microsoft.Graph.Users 
+Import-Module Microsoft.Graph.Users
 Connect-MgGraph -Scopes "User.Read.All" -NoWelcome
 
-Write-Host "input csv path: $($input_csv_path)"
+function Format-Email {
+    param([string]$username)
+    $username = $username -replace '_tamu$', ''
+    if ($username -match '@') { $username = $username.Split('@')[0] }
+    return "$username@tamu.edu"
+}
 
+# Write-Host "input csv path: $($input_csv_path)"
 # $input_csv = Import-Csv -Path $input_csv_path
-$input_csv = Import-Csv -Path "./TAMU-ArcGIS-Online-Cleanup/reports/OrganizationMembers_2026-04-02.csv"
+$input_csv = Import-Csv -Path ".\reports\AGOL_Historical_Users.csv"
+
+Write-Host "Caching EntraID users..."
+$allEntraUsers = Get-MgUser -All -Property Id, UserPrincipalName, Mail, OtherMails, Department, DisplayName
+Write-Host "Cached $($allEntraUsers.Count) Entra users"
+
+function Resolve-EntraUserFromEmails {
+    param([array]$emailsToTry)
+
+    $emailsToTry = @($emailsToTry) | Where-Object { $_ -and $_.Trim() -ne "" } | Select-Object -Unique
+
+    foreach ($emailToTry in $emailsToTry) {
+        $lookupKey = $emailToTry.Trim().ToLowerInvariant()
+
+        if ($ResolvedEmailCache.ContainsKey($lookupKey)) {
+            $cachedUser = $ResolvedEmailCache[$lookupKey]
+            if ($cachedUser) {
+                return [PSCustomObject]@{
+                    Found     = 1
+                    User      = $cachedUser
+                    EmailUsed = $emailToTry
+                }
+            }
+            continue
+        }
+
+        if ($UserByPrincipal.ContainsKey($lookupKey)) {
+            $resolvedUser = $UserByPrincipal[$lookupKey]
+            $ResolvedEmailCache[$lookupKey] = $resolvedUser
+            return [PSCustomObject]@{
+                Found     = 1
+                User      = $resolvedUser
+                EmailUsed = $emailToTry
+            }
+        }
+
+        $ResolvedEmailCache[$lookupKey] = $null
+    }
+
+    return [PSCustomObject]@{
+        Found     = 0
+        User      = $null
+        EmailUsed = ""
+    }
+}
+
+function Find-AlternateEmail {
+    param([array]$emailsToTry)
+
+    foreach ($emailToCheck in $emailsToTry) {
+        if (-not $emailToCheck -or $emailToCheck.Trim() -eq "") { continue }
+        $otherKey = $emailToCheck.Trim().ToLowerInvariant()
+
+        if ($UserByOtherMail.ContainsKey($otherKey)) {
+            $alternateUser = $UserByOtherMail[$otherKey]
+            if ($alternateUser -and $alternateUser.UserPrincipalName) {
+                return $alternateUser.UserPrincipalName
+            }
+        }
+    }
+
+    return ""
+}
+
+function Find-ManagerInfo {
+    param([string]$userId)
+
+    if (-not $userId) {
+        return [PSCustomObject]@{
+            ManagerEmail      = ""
+            ManagerDepartment = ""
+        }
+    }
+
+    if ($ManagerByUserId.ContainsKey($userId)) {
+        return $ManagerByUserId[$userId]
+    }
+
+    $result = [PSCustomObject]@{
+        ManagerEmail      = ""
+        ManagerDepartment = ""
+    }
+
+    try {
+        $managerRef = Get-MgUserManager -UserId $userId -ErrorAction Stop
+        if ($managerRef -and $managerRef.Id) {
+            if ($UserById.ContainsKey($managerRef.Id)) {
+                $managerUser = $UserById[$managerRef.Id]
+            }
+            else {
+                $managerUser = Get-MgUser -UserId $managerRef.Id -Property Id, UserPrincipalName, Mail, Department, DisplayName -ErrorAction Stop
+                if ($managerUser -and $managerUser.Id) {
+                    $UserById[$managerUser.Id] = $managerUser
+
+                    if ($managerUser.UserPrincipalName) {
+                        $UserByPrincipal[$managerUser.UserPrincipalName.Trim().ToLowerInvariant()] = $managerUser
+                    }
+
+                    if ($managerUser.Mail) {
+                        $UserByPrincipal[$managerUser.Mail.Trim().ToLowerInvariant()] = $managerUser
+                    }
+                }
+            }
+
+            $managerEmail = if ($managerUser.Mail) { $managerUser.Mail } else { "" }
+            $managerDepartment = if ($managerUser.Department) { $managerUser.Department } else { "" }
+            $result = [PSCustomObject]@{
+                ManagerEmail      = $managerEmail
+                ManagerDepartment = $managerDepartment
+            }
+        }
+    }
+    catch {
+        $result = [PSCustomObject]@{
+            ManagerEmail      = ""
+            ManagerDepartment = ""
+        }
+    }
+
+    $ManagerByUserId[$userId] = $result
+    return $result
+}
+
+function Find-GroupMemberships {
+    param([string]$userId)
+
+    if (-not $userId) { return @() }
+
+    if ($GroupsByUserId.ContainsKey($userId)) {
+        return $GroupsByUserId[$userId]
+    }
+
+    $groupMemberships = @()
+    try {
+        $groupMemberships = Get-MgUserMemberOf -UserId $userId -Property Id -All -ErrorAction Stop | Select-Object -ExpandProperty Id
+    }
+    catch {
+        $groupMemberships = @()
+    }
+
+    $GroupsByUserId[$userId] = @($groupMemberships)
+    return @($groupMemberships)
+}
+
+# Primary lookup indexes
+$UserById = @{}
+$UserByPrincipal = @{}
+$UserByOtherMail = @{}
+
+foreach ($entraUser in $allEntraUsers) {
+    if ($entraUser.Id) {
+        $UserById[$entraUser.Id] = $entraUser
+    }
+
+    if ($entraUser.UserPrincipalName) {
+        $upnKey = $entraUser.UserPrincipalName.Trim().ToLowerInvariant()
+        if (-not $UserByPrincipal.ContainsKey($upnKey)) {
+            $UserByPrincipal[$upnKey] = $entraUser
+        }
+    }
+
+    if ($entraUser.Mail) {
+        $mailKey = $entraUser.Mail.Trim().ToLowerInvariant()
+        if (-not $UserByPrincipal.ContainsKey($mailKey)) {
+            $UserByPrincipal[$mailKey] = $entraUser
+        }
+    }
+
+    foreach ($otherMail in @($entraUser.OtherMails)) {
+        if (-not $otherMail) { continue }
+        $otherKey = $otherMail.Trim().ToLowerInvariant()
+        if (-not $UserByOtherMail.ContainsKey($otherKey)) {
+            $UserByOtherMail[$otherKey] = $entraUser
+        }
+    }
+}
+
+# Runtime caches to avoid repeated Graph calls
+$ResolvedEmailCache = @{}
+$ManagerByUserId = @{}
+$GroupsByUserId = @{}
 
 $UserTable = @()
 $ErrorUsers = @()
 
 $UserTable = $input_csv | ForEach-Object {
-    Import-Module Microsoft.Graph.Users
-    Connect-MgGraph -Scopes "User.Read.All" -NoWelcome
-
-    function Format-Email {
-        param([string]$username)
-        $username = $username -replace '_tamu$', ''
-        if ($username -match '@') { $username = $username.Split('@')[0] }
-        return "$username@tamu.edu"
-    }
-
-    function Get-EntraIDStatus {
-        param([array]$emailsToTry)
-        $emailsToTry = @($emailsToTry) | Where-Object { $_ -and $_.Trim() -ne "" } | Select-Object -Unique
-        foreach ($emailToTry in $emailsToTry) {
-            try {
-                $user = Get-MgUser -UserId $emailToTry -Property Department, DisplayName -ErrorAction Stop
-                $userdepartment = if ($user.Department) { $user.Department } else { "" }
-                return 1, $userdepartment, $emailToTry
-            }
-            catch {
-                Write-Host "Failed to find user with email: $emailToTry"
-            }
-        }
-        return 0, "", ""
-    }
-
-    function Find-ManagerEmail {
-        param([string]$email)
-        try {
-            $manager = Get-MgUserManager -UserId $email -ErrorAction Stop
-            if ($manager) {
-                $manageruser = Get-MgUser -UserId $manager.Id -Property Mail, Department, DisplayName -ErrorAction Stop
-                $managerdepartment = if ($manageruser.Department) { $manageruser.Department } else { "" }
-                $managerEmail = if ($manageruser.Mail) { $manageruser.Mail } else { "" }
-                Write-Host "Found manager: $($manageruser.DisplayName) with email: $managerEmail"
-            }
-            else {
-                $managerEmail = ""; $managerdepartment = ""
-            }
-        }
-        catch {
-            Write-Host "Error getting manager: $($_.Exception.Message)"
-            $managerEmail = ""; $managerdepartment = ""
-        }
-        return $managerEmail, $managerdepartment
-    }
-
-    function Find-GroupMemberships {
-        param([string]$email)
-        try {
-            $groupMemberships = Get-MgUserMemberOf -UserId $email -Property id -ErrorAction Stop | Select-Object -ExpandProperty Id
-        }
-        catch {
-            Write-Host "Error getting groups: $($_.Exception.Message)"
-            $groupMemberships = ""
-        }
-        return $groupMemberships
-    }
-
-    function Find-AlternateEmail {
-        param([array]$emailstotry)
-
-        foreach ($emailToCheck in $emailstotry) {
-            if (-not $emailToCheck -or $emailToCheck.Trim() -eq "") { continue }
-            try {
-                $alternateMatch = Get-MgUser -Filter "otherMails/any(x:x eq '$emailToCheck')" -Property id, displayName, userPrincipalName -ErrorAction Stop
-                $altEmail = $alternateMatch.UserPrincipalName
-                return $altEmail
-            }
-            catch {
-                # Continue to next email
-            }
-        }
-        return ""
-    }
 
     # Initialize variables for analysis
     $username = $_.Username
@@ -108,26 +222,27 @@ $UserTable = $input_csv | ForEach-Object {
 
     $formattedEmail1 = Format-Email -username $username
     $formattedEmail2 = Format-Email -username $email
-    $emailstotry = @($email, $formattedEmail1, $formattedEmail2) | Select-Object -Unique
+    $emailstotry = @($email, $formattedEmail1, $formattedEmail2) | Where-Object { $_ -and $_.Trim() -ne "" } | Select-Object -Unique
 
-    $altEmail = Find-AlternateEmail -emailstotry $emailstotry
-    if ($altEmail -and $altEmail.Trim() -ne "") {
+    $altEmail = Find-AlternateEmail -emailsToTry $emailstotry
+    if ($altEmail -and $altEmail.Trim() -ne "" -and $emailstotry -notcontains $altEmail) {
         $emailstotry += $altEmail
     }
-    $entraid_lookup = Get-EntraIDStatus -emailsToTry $emailstotry
 
-    if ($entraid_lookup[0] -eq 1) {
-        Write-Host "$email found in EntraID as $($entraid_lookup[2]). Department: $($entraid_lookup[1])"
-        $entraid_status = $entraid_lookup[0]
-        $userDepartment = $entraid_lookup[1]
-        $workingEmail = $entraid_lookup[2]
-        
-        $managerInfo = Find-ManagerEmail -email $workingEmail
-        $managerEmail = $managerInfo[0]
-        $managerDepartment = $managerInfo[1]
+    $entraidLookup = Resolve-EntraUserFromEmails -emailsToTry $emailstotry
 
-        $groupMemberships = Find-GroupMemberships -email $workingEmail
-        $groupMemberships = if ($groupMemberships) { $groupMemberships -join ", " } else { "" }
+    if ($entraidLookup.Found -eq 1) {
+        $resolvedUser = $entraidLookup.User
+        $entraid_status = $entraidLookup.Found
+        $userDepartment = if ($resolvedUser.Department) { $resolvedUser.Department } else { "" }
+        $workingEmail = $entraidLookup.EmailUsed
+
+        $managerInfo = Find-ManagerInfo -userId $resolvedUser.Id
+        $managerEmail = $managerInfo.ManagerEmail
+        $managerDepartment = $managerInfo.ManagerDepartment
+
+        $groupMemberships = Find-GroupMemberships -userId $resolvedUser.Id
+        $groupMemberships = $groupMemberships -join ", "
         $groupMemberships = $groupMemberships.Substring(0, [math]::Min(1000, $groupMemberships.Length))
     }
     else {
@@ -171,19 +286,14 @@ $UserTable = $input_csv | ForEach-Object {
             ErrorUser         = $username
         }
     }
-
 }
 
 $ErrorUsers = $UserTable | Where-Object { $_.ErrorUser } | Select-Object -ExpandProperty ErrorUser
 $UserTable = $UserTable | Select-Object -ExcludeProperty ErrorUser
 
-
 # Export results
-# $UserTable | Export-Csv -Path ".\reports\AGOL_EntraID_Status.csv" -NoTypeInformation
-# $ErrorUsers | Out-File -FilePath ".\reports\error_hist_users.txt"
-
-$UserTable | Export-Csv -Path ".\TAMU-ArcGIS-Online-Cleanup\reports\AGOL_EntraID_Status.csv" -NoTypeInformation
-$ErrorUsers | Out-File -FilePath ".\TAMU-ArcGIS-Online-Cleanup\reports\error_hist_users.txt"
+$UserTable | Export-Csv -Path ".\reports\AGOL_EntraID_Status.csv" -NoTypeInformation
+$ErrorUsers | Out-File -FilePath ".\reports\error_hist_users.txt"
 
 Write-Host "Processing complete:"
 Write-Host "Users Processed: $($UserTable.Count)"

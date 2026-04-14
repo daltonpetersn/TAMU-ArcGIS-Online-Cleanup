@@ -16,15 +16,22 @@ import os
 # GLOBAL VARIABLES & INITIALIZATION
 ########################################################################################################################
 
+CURRENT_DATE = datetime.datetime.now().date()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(SCRIPT_DIR, '.env')
 
-load_dotenv()
-engine = create_engine(getenv("SQL_CONNECTION_STRING"))
+load_dotenv(dotenv_path=ENV_PATH)
+
+sql_connection_string = getenv("SQL_CONNECTION_STRING")
+if not sql_connection_string:
+    raise RuntimeError(
+        f"Missing SQL_CONNECTION_STRING. Add it to environment variables or {ENV_PATH}."
+    )
+
+engine = create_engine(sql_connection_string)
 
 gis = GIS("home")
 print(f'connected to ArcGIS online as {gis.users.me.username}')
-
-CURRENT_DATE = datetime.datetime.now().date()
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 os.makedirs(os.path.join(SCRIPT_DIR, 'reports'), exist_ok=True)
 
@@ -287,26 +294,26 @@ def Catalog_and_Cleanup():
             print("No previous entraID status reports found in the database.")
 
     # clear reports directory
-    # print("clearing reports directory...")
-    # for filename in os.listdir(os.path.join(SCRIPT_DIR, 'reports')):
-    #     file_path = os.path.join(SCRIPT_DIR, 'reports', filename)
-    #     try:
-    #         if os.path.isfile(file_path):
-    #             os.unlink(file_path)
-    #     except Exception as e:
-    #         print(f"Error deleting file {file_path}: {e}")
+    print("clearing reports directory...")
+    for filename in os.listdir(os.path.join(SCRIPT_DIR, 'reports')):
+        file_path = os.path.join(SCRIPT_DIR, 'reports', filename)
+        try:
+            if os.path.isfile(file_path):
+                os.unlink(file_path)
+        except Exception as e:
+            print(f"Error deleting file {file_path}: {e}")
 
 def main():
     Catalog_and_Cleanup()
     item_report_df, member_report_df, item_report_csv_path, member_report_csv_path, item_report_title, member_report_title = fetch_reports()
-    Collect_EntraID_Information(member_report_csv_path)
-    Upload_Tables_to_Database(
-        item_report_df,
-        member_report_df,
-        os.path.join(SCRIPT_DIR, 'reports', 'AGOL_EntraID_Status.csv'),
-        item_report_title,
-        member_report_title,
-    )
+    # Collect_EntraID_Information(member_report_csv_path)
+    # Upload_Tables_to_Database(
+    #     item_report_df,
+    #     member_report_df,
+    #     os.path.join(SCRIPT_DIR, 'reports', 'AGOL_EntraID_Status.csv'),
+    #     item_report_title,
+    #     member_report_title,
+    # )
 
     print("script execution complete.")    
 
