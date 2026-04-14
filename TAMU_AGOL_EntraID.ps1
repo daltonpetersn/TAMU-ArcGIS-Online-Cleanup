@@ -19,20 +19,20 @@ Set-Location -Path $scriptDir
 Import-Module Microsoft.Graph.Users
 Connect-MgGraph -Scopes "User.Read.All" -NoWelcome
 
+# Write-Host "input csv path: $($input_csv_path)"
+# $input_csv = Import-Csv -Path $input_csv_path
+$input_csv = Import-Csv -Path ".\reports\OrganizationMembers_2026-04-14.csv"
+
+Write-Host "Caching EntraID users..."
+$allEntraUsers = Get-MgUser -All -Property Id, UserPrincipalName, Mail, OtherMails, Department, DisplayName
+Write-Host "Cached $($allEntraUsers.Count) EntraID users"
+
 function Format-Email {
     param([string]$username)
     $username = $username -replace '_tamu$', ''
     if ($username -match '@') { $username = $username.Split('@')[0] }
     return "$username@tamu.edu"
 }
-
-# Write-Host "input csv path: $($input_csv_path)"
-# $input_csv = Import-Csv -Path $input_csv_path
-$input_csv = Import-Csv -Path ".\reports\AGOL_Historical_Users.csv"
-
-Write-Host "Caching EntraID users..."
-$allEntraUsers = Get-MgUser -All -Property Id, UserPrincipalName, Mail, OtherMails, Department, DisplayName
-Write-Host "Cached $($allEntraUsers.Count) Entra users"
 
 function Resolve-EntraUserFromEmails {
     param([array]$emailsToTry)
@@ -177,6 +177,8 @@ $UserById = @{}
 $UserByPrincipal = @{}
 $UserByOtherMail = @{}
 
+$numUsersIndexed = 0
+
 foreach ($entraUser in $allEntraUsers) {
     if ($entraUser.Id) {
         $UserById[$entraUser.Id] = $entraUser
@@ -203,7 +205,9 @@ foreach ($entraUser in $allEntraUsers) {
             $UserByOtherMail[$otherKey] = $entraUser
         }
     }
-}
+    $numUsersIndexed++
+    Write-Progress -Activity "Indexing EntraID Users" -Status "Indexed $numUsersIndexed users..." -PercentComplete (($numUsersIndexed / $allEntraUsers.Count) * 100)
+} 
 
 # Runtime caches to avoid repeated Graph calls
 $ResolvedEmailCache = @{}
@@ -232,6 +236,7 @@ $UserTable = $input_csv | ForEach-Object {
     $entraidLookup = Resolve-EntraUserFromEmails -emailsToTry $emailstotry
 
     if ($entraidLookup.Found -eq 1) {
+        Write-Host "Resolved EntraID for $username using email $($entraidLookup.EmailUsed)"
         $resolvedUser = $entraidLookup.User
         $entraid_status = $entraidLookup.Found
         $userDepartment = if ($resolvedUser.Department) { $resolvedUser.Department } else { "" }
@@ -246,6 +251,7 @@ $UserTable = $input_csv | ForEach-Object {
         $groupMemberships = $groupMemberships.Substring(0, [math]::Min(1000, $groupMemberships.Length))
     }
     else {
+        Write-Host "Could not resolve EntraID for $username with tried emails: $($emailstotry -join ", ")"
         $entraid_status = 0
         $managerEmail = ""
         $managerDepartment = ""

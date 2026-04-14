@@ -11,6 +11,7 @@ from os import getenv
 import subprocess
 import datetime
 import os
+from urllib.parse import quote_plus
 
 
 # GLOBAL VARIABLES & INITIALIZATION
@@ -20,16 +21,22 @@ CURRENT_DATE = datetime.datetime.now().date()
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(SCRIPT_DIR, '.env')
 
-load_dotenv(dotenv_path=ENV_PATH)
+load_dotenv(dotenv_path=ENV_PATH, override=True)
 
-sql_connection_string = getenv("SQL_CONNECTION_STRING")
+sql_connection_string = (getenv("SQL_CONNECTION_STRING") or "").strip().strip('"').strip("'")
 if not sql_connection_string:
     raise RuntimeError(
         f"Missing SQL_CONNECTION_STRING. Add it to environment variables or {ENV_PATH}."
     )
 
-engine = create_engine(sql_connection_string)
+# Accept either a SQLAlchemy URL or a raw ODBC connection string (Driver=...;Server=...;...)
+if "://" in sql_connection_string:
+    engine = create_engine(sql_connection_string)
+else:
+    odbc_connect = quote_plus(sql_connection_string)
+    engine = create_engine(f"mssql+pyodbc:///?odbc_connect={odbc_connect}")
 
+# Connect to ArcGIS Online with system credentials (make sure to login to ArcGIS Online with an admin account before running)
 gis = GIS("home")
 print(f'connected to ArcGIS online as {gis.users.me.username}')
 
@@ -38,6 +45,45 @@ os.makedirs(os.path.join(SCRIPT_DIR, 'reports'), exist_ok=True)
 
 # FUNCTIONS
 ########################################################################################################################
+
+# HELPER FUNCTIONS FOR SQL OPERATIONS
+
+def quote_sql_identifier(name):
+    """Safely quote SQL Server identifiers with brackets."""
+    return f"[{name.replace(']', ']]')}]"
+
+
+def get_table_columns(connection, table_name):
+    """Get table columns in ordinal order."""
+    rows = connection.execute(
+        text(
+            """
+            SELECT COLUMN_NAME
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_NAME = :table_name
+            ORDER BY ORDINAL_POSITION
+            """
+        ),
+        {"table_name": table_name},
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
+def insert_by_matching_columns(connection, destination_table, source_table):
+    """Insert rows by matching column names, not positional order."""
+    source_columns = get_table_columns(connection, source_table)
+    destination_columns = set(get_table_columns(connection, destination_table))
+    shared_columns = [col for col in source_columns if col in destination_columns]
+
+    if not shared_columns:
+        raise RuntimeError(f"No shared columns between {source_table} and {destination_table}.")
+
+    columns_sql = ", ".join(quote_sql_identifier(col) for col in shared_columns)
+    destination_sql = quote_sql_identifier(destination_table)
+    source_sql = quote_sql_identifier(source_table)
+    connection.execute(
+        text(f"INSERT INTO {destination_sql} ({columns_sql}) SELECT {columns_sql} FROM {source_sql}")
+    )
 
 def get_report_sql_dtypes(report_name):
     """Function to define and apply SQL table data types for AGOL reports"""
@@ -93,14 +139,14 @@ def get_report_sql_dtypes(report_name):
             'Username': NVARCHAR(255),
             'Email' : NVARCHAR(255),
             'Name' : NVARCHAR(255),
-            'EmailsTried' : NVARCHAR(),
-            'WorkingEmail' : NVARCHAR(255),
-            'UserDepartment' : NVARCHAR(255),
-            'ManagerDepartment' : NVARCHAR(255),
             'EntraID_Status': BIT(),
             'ManagerEmail' : NVARCHAR(255),
+            'Groups': NVARCHAR(),
             'updated_date': DATETIME(),
-            'Groups': NVARCHAR()
+            'WorkingEmail' : NVARCHAR(255),
+            'EmailsTried' : NVARCHAR(),
+            'UserDepartment' : NVARCHAR(255),
+            'ManagerDepartment' : NVARCHAR(255)
         }
 
 def preprocess_dataframe_for_sql(df, dtype_map):
@@ -117,6 +163,7 @@ def preprocess_dataframe_for_sql(df, dtype_map):
                 df[col] = df[col].astype('bool', errors='ignore') if df[col].dtype != 'bool' else df[col]
     return df
 
+# MAIN FUNCTIONS
 
 def fetch_reports():
     "Fetches reports from ArcGIS Online, saves them as CSV's, and returns them as a pandas DataFrame."
@@ -258,7 +305,7 @@ def Catalog_and_Cleanup():
                 if exists[0] is None:
                     connection.execute(text(f"SELECT * INTO [{item_history_table_title}] FROM [{table_name}]"))
                 else:
-                    connection.execute(text(f"INSERT INTO [{item_history_table_title}] SELECT * FROM [{table_name}]"))
+                    insert_by_matching_columns(connection, item_history_table_title, table_name)
                 connection.execute(text(f"DROP TABLE [{table_name}]"))
                 connection.commit()  # Commit after each operation
         else:
@@ -273,7 +320,7 @@ def Catalog_and_Cleanup():
                 if exists[0] is None:
                     connection.execute(text(f"SELECT * INTO [{member_history_table_title}] FROM [{table_name}]"))
                 else:
-                    connection.execute(text(f"INSERT INTO [{member_history_table_title}] SELECT * FROM [{table_name}]"))
+                    insert_by_matching_columns(connection, member_history_table_title, table_name)
                 connection.execute(text(f"DROP TABLE [{table_name}]"))
                 connection.commit()
         else:
@@ -287,7 +334,7 @@ def Catalog_and_Cleanup():
             if exists[0] is None:
                 connection.execute(text(f"SELECT * INTO [{entraid_status_history_table_title}] FROM [{table_name}]"))
             else:
-                connection.execute(text(f"INSERT INTO [{entraid_status_history_table_title}] SELECT * FROM [{table_name}]"))
+                insert_by_matching_columns(connection, entraid_status_history_table_title, table_name)
             connection.execute(text(f"DROP TABLE [{table_name}]"))
             connection.commit()
         else:
@@ -306,14 +353,14 @@ def Catalog_and_Cleanup():
 def main():
     Catalog_and_Cleanup()
     item_report_df, member_report_df, item_report_csv_path, member_report_csv_path, item_report_title, member_report_title = fetch_reports()
-    # Collect_EntraID_Information(member_report_csv_path)
-    # Upload_Tables_to_Database(
-    #     item_report_df,
-    #     member_report_df,
-    #     os.path.join(SCRIPT_DIR, 'reports', 'AGOL_EntraID_Status.csv'),
-    #     item_report_title,
-    #     member_report_title,
-    # )
+    Collect_EntraID_Information(member_report_csv_path)
+    Upload_Tables_to_Database(
+        item_report_df,
+        member_report_df,
+        os.path.join(SCRIPT_DIR, 'reports', 'AGOL_EntraID_Status.csv'),
+        item_report_title,
+        member_report_title,
+    )
 
     print("script execution complete.")    
 
