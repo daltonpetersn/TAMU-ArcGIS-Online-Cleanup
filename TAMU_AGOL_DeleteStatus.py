@@ -10,6 +10,8 @@
 # Date: 2026-04-02
 
 
+from urllib.parse import quote_plus
+
 import pandas as pd
 
 from sqlalchemy import create_engine, text, Float
@@ -24,14 +26,28 @@ from dotenv import load_dotenv
 import smtplib
 from email.message import EmailMessage
 
+
 # GLOBAL VARIABLES & INITIALIZATION
 ############################################################################################
 
-load_dotenv()
-engine = create_engine(getenv("SQL_CONNECTION_STRING"))
-
 CURRENT_DATE = datetime.datetime.now().date()
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(SCRIPT_DIR, '.env')
+
+load_dotenv(dotenv_path=ENV_PATH, override=True)
+
+sql_connection_string = (getenv("SQL_CONNECTION_STRING") or "").strip().strip('"').strip("'")
+if not sql_connection_string:
+    raise RuntimeError(
+        f"Missing SQL_CONNECTION_STRING. Add it to environment variables or {ENV_PATH}."
+    )
+
+# Accept either a SQLAlchemy URL or a raw ODBC connection string (Driver=...;Server=...;...)
+if "://" in sql_connection_string:
+    engine = create_engine(sql_connection_string)
+else:
+    odbc_connect = quote_plus(sql_connection_string)
+    engine = create_engine(f"mssql+pyodbc:///?odbc_connect={odbc_connect}")
 
 SENDER_EMAIL = getenv("SENDER_EMAIL")
 SENDER_PASSWORD = getenv("SENDER_PASSWORD") 
@@ -39,30 +55,12 @@ SENDER_PASSWORD = getenv("SENDER_PASSWORD")
 DELETE_STATUS_TABLE_NAME = getenv("DELETE_STATUS_TABLE_NAME")
 WHITELISTED_ENTRAID_GROUPS_TABLE_NAME = getenv("WHITELISTED_ENTRAID_GROUPS_TABLE_NAME")
 
+
 # FUNCTIONS
 #############################################################################################
 
-def Email_Delete_Users(useremail, manageremail, username, name):
-    """This function emails the user and their manager (if applicable) to notify them that their account has been marked for deletion."""
+# HELPER FUNCTIONS
 
-    # Set up the email parameters
-    msg = EmailMessage()
-    msg['Subject'] = 'Your ArcGIS Online Account Has been deleted'
-    msg['From'] = SENDER_EMAIL
-    msg['To'] = useremail , manageremail if manageremail else None
-
-    msg.set_content()
-
-def Email_Flagged_Users(useremail, manageremail, username, name):
-    """This function emails the user and their manager (if applicable) to notify them that their account has been flagged for deletion."""
-
-    # Set up the email parameters
-    msg = EmailMessage()
-    msg['Subject'] = 'Action Required: Your ArcGIS Online Account Has Been Flagged for Deletion'
-    msg['From'] = SENDER_EMAIL
-    msg['To'] = useremail , manageremail if manageremail else None
-
-    msg.set_content()
 
 def deletestatus_sql_datatypes():
     """This function defines the SQL data types for the DeleteStatus table."""
@@ -78,19 +76,70 @@ def deletestatus_sql_datatypes():
         'updated_date': DATETIME
     }
 
-def Update_DeleteStatus_Table(member_table_name, delete_status_table_name):
+def collect_entraid_table_name():
+    """This function collects the name of the most recent EntraID status table from the DB.
+    Returns:
+        entraid_table_name (str): The name of the most recent EntraID status table.
+    """
+    with engine.connect() as connection:
+        cursor_entraid = connection.execute(text("SELECT name FROM sys.tables WHERE name LIKE 'AGOL_EntraID_Status%'"))
+        previous_entraid_reports = cursor_entraid.fetchall()
+
+    # Return the most recent EntraID table name
+    entraid_table_name = previous_entraid_reports[-1][0] if previous_entraid_reports else None
+
+    return entraid_table_name
+
+
+
+# MAIN FUNCTIONS
+
+
+
+def Email_Delete_Users(useremail, manageremail, username, name):
+    """This function emails the user and their manager (if applicable) to notify them that their account has been marked for deletion."""
+
+    print(f"emailing user {username} to notify them of account deletion...")
+
+    # # Set up the email parameters
+    # msg = EmailMessage()
+    # msg['Subject'] = 'Your ArcGIS Online Account Has been deleted'
+    # msg['From'] = SENDER_EMAIL
+    # msg['To'] = useremail , manageremail if manageremail else None
+
+    # msg.set_content()
+
+def Email_Flagged_Users(useremail, manageremail, username, name):
+    """This function emails the user and their manager (if applicable) to notify them that their account has been flagged for deletion."""
+
+    print(f"emailing user {username} to notify them of account flagging...")
+    # # Set up the email parameters
+    # msg = EmailMessage()
+    # msg['Subject'] = 'Action Required: Your ArcGIS Online Account Has Been Flagged for Deletion'
+    # msg['From'] = SENDER_EMAIL
+    # msg['To'] = useremail , manageremail if manageremail else None
+
+    # msg.set_content()
+
+
+
+def Update_DeleteStatus_Table(entraid_table_name, delete_status_table_name):
     """This function retrieves the DeleteStatus and Current OrganizationMembers tables from the database. If there is a member in the OrganizationMembers table that is not in the DeleteStatus table, they are added with a DeleteStatus of 0. This function serves to add newly created accounts to the DeleteStatus table so that they can be monitored for deletion if needed."""
+
+    print ("Updating DeleteStatus table with any new users...")
 
     with engine.connect() as connection:
         delete_status_df = pd.read_sql(text(f"SELECT * FROM {delete_status_table_name}"), connection)
-        member_df = pd.read_sql(text(f"SELECT * FROM {member_table_name}"), connection)
+        entraid_df = pd.read_sql(text(f"SELECT * FROM {entraid_table_name}"), connection)
 
     # Identify new members that are not in the delete status table
-    new_members_df = member_df[~member_df['Username'].isin(delete_status_df['Username'])]
+    new_users_df = entraid_df[~entraid_df['Username'].isin(delete_status_df['Username'])]
+    print(f"Found {len(new_users_df)} new users that are not in the DeleteStatus table.")
 
-    # If there are new members, add them to the delete status table with a status of 0
-    if not new_members_df.empty:
-        new_delete_status_entries = new_members_df[['Username', 'Name', 'WorkingEmail', 'ManagerEmail']].copy()
+    # If there are new users, add them to the delete status table with a status of 0
+    if not new_users_df.empty:
+        print ("Adding new users to DeleteStatus table with a status of 0...")
+        new_delete_status_entries = new_users_df[['Username', 'Name', 'WorkingEmail', 'ManagerEmail']].copy()
         new_delete_status_entries['DeleteStatus'] = 0
         new_delete_status_entries['FlagDate'] = None
         new_delete_status_entries['DeleteDate'] = None
@@ -103,43 +152,103 @@ def Update_DeleteStatus_Table(member_table_name, delete_status_table_name):
         # Upload the updated delete status DataFrame back to the database
         updated_delete_status_df.to_sql(delete_status_table_name, con=engine, if_exists='replace', index=False, dtype=deletestatus_sql_datatypes())
     
-    return delete_status_df
+    return updated_delete_status_df if not new_users_df.empty else delete_status_df
+
 
 
 def Calculate_Delete_Status(delete_status_df,entraid_status_df):
     """This function calculates the deletion status for each user based on their EntraID status and updated dates, updates the database, and sends notification emails as needed."""
 
+    print ("Calculating delete status for users in DeleteStatus table...")
+
     whitelisted_groups_df = pd.read_sql(text(f"SELECT * FROM {WHITELISTED_ENTRAID_GROUPS_TABLE_NAME}"), engine)
     whitelisted_group_ids = whitelisted_groups_df['ID'].tolist()
 
+    unflagged_user_count = 0
+    flagged_user_count = 0
+    deleted_user_count = 0
+
     for row in delete_status_df.itertuples():
         user_entraid_info = entraid_status_df[entraid_status_df['Username'] == row.Username]
-        user_entraid_groups = user_entraid_info['Groups'].values[0].split(',') if not user_entraid_info.empty else []
-
+        groups_value = user_entraid_info['Groups'].iloc[0] if not user_entraid_info.empty else None
+        if pd.isna(groups_value) or not str(groups_value).strip():
+            user_entraid_groups = []
+        else:
+            user_entraid_groups = [group_id.strip() for group_id in str(groups_value).split(',') if group_id.strip()]
+        user_entraid_status = user_entraid_info['EntraID_Status'].iloc[0] if not user_entraid_info.empty else None
+        
         # If a user has an override, remove potential flags and move to next user
         if row.Override:
             delete_status_df.at[row.Index, 'DeleteStatus'] = 0
+            delete_status_df.at[row.Index, 'FlagDate'] = None
+            delete_status_df.at[row.Index, 'DeleteDate'] = None
+            unflagged_user_count += 1
             print(f"User {row.Username} has an override enabled. Setting DeleteStatus to 0 and skipping further checks.")
 
         # Determine if an unflagged user should be flagged based on EntraID affiliations
         elif row.DeleteStatus == 0:
-            if user_entraid_info.EntraID_Status == 0:
+            if user_entraid_status == 0:
                 delete_status_df.at[row.Index, 'DeleteStatus'] = 1
                 delete_status_df.at[row.Index, 'FlagDate'] = CURRENT_DATE
                 Email_Flagged_Users(row.WorkingEmail, row.ManagerEmail, row.Username, row.Name)
-            elif user_entraid_info.EntraID_Status == 1:
+                unflagged_user_count += 1
+            elif user_entraid_status == 1:
                 if any(group_id in whitelisted_group_ids for group_id in user_entraid_groups):
+                        delete_status_df.at[row.Index, 'DeleteStatus'] = 0
+                        delete_status_df.at[row.Index, 'FlagDate'] = None
+                        delete_status_df.at[row.Index, 'DeleteDate'] = None
+                        unflagged_user_count += 1
                         continue
                 else:
                     delete_status_df.at[row.Index, 'DeleteStatus'] = 1
                     delete_status_df.at[row.Index, 'FlagDate'] = CURRENT_DATE
                     Email_Flagged_Users(row.WorkingEmail, row.ManagerEmail, row.Username, row.Name)
+                    flagged_user_count += 1
         
         # Determine if flagged users should be marked for deletion based on how long they have been flagged
-        elif row.DeleteStatus == 1 and row.FlagDate and (CURRENT_DATE - row.FlagDate.date()).days >= 30:
+        elif row.DeleteStatus == 1 and row.FlagDate and (CURRENT_DATE - pd.Timestamp(row.FlagDate).date()).days >= 30:
             delete_status_df.at[row.Index, 'DeleteStatus'] = 2
             delete_status_df.at[row.Index, 'DeleteDate'] = CURRENT_DATE
             Email_Delete_Users(row.WorkingEmail, row.ManagerEmail, row.Username, row.Name)
+            deleted_user_count += 1
+        else:
+            unflagged_user_count += 1 if row.DeleteStatus == 0 else 0
+            flagged_user_count += 1 if row.DeleteStatus == 1 else 0
+            deleted_user_count += 1 if row.DeleteStatus == 2 else 0
+
+    print(f"Unflagged users: {unflagged_user_count}")
+    print(f"Flagged users: {flagged_user_count}")
+    print(f"Users to delete: {deleted_user_count}")
 
     # Upload the updated delete status DataFrame back to the database
     delete_status_df.to_sql(DELETE_STATUS_TABLE_NAME, con=engine, if_exists='replace', index=False, dtype=deletestatus_sql_datatypes())
+
+def Delete_Users(delete_status_df):
+    """This function deletes users that have been marked for deletion for over 30 days."""
+
+    print ("Deleting users that have been marked for deletion for over 30 days...")
+
+    users_to_delete = delete_status_df[delete_status_df['DeleteStatus'] == 2]
+
+    delete_count = 0
+
+    for row in users_to_delete.itertuples():
+        print (f"Deleting user {row.Username}")
+        delete_count += 1
+        # delete_user(row.Username)
+
+    print(f"Deleted {delete_count} users.")
+
+def main():
+    entraid_table_name = collect_entraid_table_name()
+    delete_status_df = Update_DeleteStatus_Table(entraid_table_name, DELETE_STATUS_TABLE_NAME)
+    entraid_status_df = pd.read_sql(text(f"SELECT * FROM AGOL_EntraID_Status"), engine)
+    Calculate_Delete_Status(delete_status_df,entraid_status_df)
+    Delete_Users(delete_status_df)
+
+# MAIN EXECUTION
+
+###############################################################################################
+
+if __name__ == "__main__":
+    main()

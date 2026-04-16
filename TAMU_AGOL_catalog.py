@@ -18,6 +18,7 @@ import datetime
 import os
 
 
+
 # GLOBAL VARIABLES & INITIALIZATION
 ########################################################################################################################
 
@@ -193,8 +194,8 @@ def fetch_reports():
     member_report_df['updated_date'] = CURRENT_DATE
 
     # Save the DataFrames as CSV files
-    item_report_title = item_report.title.replace("/", "_")
-    member_report_title = member_report.title.replace("/", "_")
+    item_report_title = item_report.title.replace("/", "_").replace("-", "_")
+    member_report_title = member_report.title.replace("/", "_").replace("-", "_")
     item_report_df.to_csv(os.path.join(SCRIPT_DIR, 'reports', f'{item_report_title}.csv'), index=False)
     member_report_df.to_csv(os.path.join(SCRIPT_DIR, 'reports', f'{member_report_title}.csv'), index=False)
 
