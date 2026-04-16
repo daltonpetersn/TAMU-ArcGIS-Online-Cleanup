@@ -20,8 +20,7 @@ Import-Module Microsoft.Graph.Users
 Connect-MgGraph -Scopes "User.Read.All" -NoWelcome
 
 # Write-Host "input csv path: $($input_csv_path)"
-# $input_csv = Import-Csv -Path $input_csv_path
-$input_csv = Import-Csv -Path ".\reports\OrganizationMembers_2026-04-14.csv"
+$input_csv = Import-Csv -Path $input_csv_path
 
 Write-Host "Caching EntraID users..."
 $allEntraUsers = Get-MgUser -All -Property Id, UserPrincipalName, Mail, OtherMails, Department, DisplayName

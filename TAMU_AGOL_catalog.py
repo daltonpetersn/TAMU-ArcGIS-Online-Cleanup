@@ -4,14 +4,18 @@
 
 from arcgis.gis import GIS
 import pandas as pd
+
 from sqlalchemy import create_engine, text, Float
 from sqlalchemy.dialects.mssql import NVARCHAR, DATETIME, BIT
+
 from dotenv import load_dotenv
 from os import getenv
+from urllib.parse import quote_plus
+
 import subprocess
+
 import datetime
 import os
-from urllib.parse import quote_plus
 
 
 # GLOBAL VARIABLES & INITIALIZATION
@@ -166,7 +170,7 @@ def preprocess_dataframe_for_sql(df, dtype_map):
 # MAIN FUNCTIONS
 
 def fetch_reports():
-    "Fetches reports from ArcGIS Online, saves them as CSV's, and returns them as a pandas DataFrame."
+    """Fetches reports from ArcGIS Online, saves them as CSV's, and returns them as a pandas DataFrame."""
     print("fetching AGOL item and member reports...")
 
     # Get all org item & member reports. These are generated daily by 
@@ -211,7 +215,7 @@ def fetch_reports():
 
 
 def Collect_EntraID_Information(member_report_csv_path):
-    "Calls TAMU_AGOL_EntraID.ps1 to collect EntraID information for each user in the member report and write to a CSV."
+    """Calls TAMU_AGOL_EntraID.ps1 to collect EntraID information for each user in the member report and write to a CSV."""
 
     # Run the PowerShell script to collect EntraID information for each user in the member report and write to CSV
     result = subprocess.Popen(
@@ -223,8 +227,7 @@ def Collect_EntraID_Information(member_report_csv_path):
     ], 
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
-    text=True,
-    cwd=SCRIPT_DIR
+    text=True
     )
 
     output_lines = []
@@ -236,7 +239,6 @@ def Collect_EntraID_Information(member_report_csv_path):
     stderr_output = result.stderr.read() if result.stderr else ""
 
     # Now you have both
-    all_output = ''.join(output_lines)
     if stderr_output:
         print(f"Errors: {stderr_output}")
 
@@ -251,7 +253,7 @@ def Collect_EntraID_Information(member_report_csv_path):
 
 
 def Upload_Tables_to_Database(item_report_df, member_report_df, entraid_status_path, item_report_title, member_report_title):
-    "Uploads the item and member report DataFrames to the database."
+    """Uploads the item and member report DataFrames to the database."""
 
     # Preprocess and upload the item report DataFrame
     print("uploading item report to database...")

@@ -1,0 +1,18 @@
+Greetings,
+
+Our records indicate that the ArcGIS Online account associated with {name} (Username: {username}) has a total feature storage that exceeds the maximum allowable storage amount per user (30 MB). This quota is calculated based on the total amount of storage allotted to Texas A&M and the total number of users in the Texas A&M GIS Portal.
+
+Please consider migrating data and/or removing it from the Texas A&M ArcGIS Online Portal if it is not critical for current projects.
+
+The largest items associated with your account are:
+{item_name}, {feature_storage_size} MB: {item_url}
+{item_name}, {feature_storage_size} MB: {item_url}
+{item_name}, {feature_storage_size} MB: {item_url}
+
+If you have questions about this message, please review the Texas A&M University ArcGIS Online Policy Guidelines at <link> and contact the GIS Help Desk at tx.ag/GISHelpDesk.
+
+This email was automatically sent to the on-record email associated with this ArcGIS Online account.
+
+Thank you,
+
+Texas A&M University GIS Help Desk
