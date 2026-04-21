@@ -4,3 +4,6 @@ reports/*.txt
 
 # ignore env file with sensitive information
 .env
+
+# ignore email templates
+*EmailTemplate.txt

@@ -36,6 +36,7 @@ ENV_PATH = os.path.join(SCRIPT_DIR, '.env')
 
 load_dotenv(dotenv_path=ENV_PATH, override=True)
 
+
 sql_connection_string = (getenv("SQL_CONNECTION_STRING") or "").strip().strip('"').strip("'")
 if not sql_connection_string:
     raise RuntimeError(
@@ -49,6 +50,7 @@ else:
     odbc_connect = quote_plus(sql_connection_string)
     engine = create_engine(f"mssql+pyodbc:///?odbc_connect={odbc_connect}")
 
+
 SENDER_EMAIL = getenv("SENDER_EMAIL")
 SENDER_PASSWORD = getenv("SENDER_PASSWORD") 
 
@@ -58,6 +60,7 @@ WHITELISTED_ENTRAID_GROUPS_TABLE_NAME = getenv("WHITELISTED_ENTRAID_GROUPS_TABLE
 
 # FUNCTIONS
 #############################################################################################
+
 
 # HELPER FUNCTIONS
 
@@ -76,6 +79,7 @@ def deletestatus_sql_datatypes():
         'updated_date': DATETIME
     }
 
+
 def collect_entraid_table_name():
     """This function collects the name of the most recent EntraID status table from the DB.
     Returns:
@@ -91,9 +95,7 @@ def collect_entraid_table_name():
     return entraid_table_name
 
 
-
 # MAIN FUNCTIONS
-
 
 
 def Email_Delete_Users(useremail, manageremail, username, name):
@@ -109,6 +111,7 @@ def Email_Delete_Users(useremail, manageremail, username, name):
 
     # msg.set_content()
 
+
 def Email_Flagged_Users(useremail, manageremail, username, name):
     """This function emails the user and their manager (if applicable) to notify them that their account has been flagged for deletion."""
 
@@ -120,7 +123,6 @@ def Email_Flagged_Users(useremail, manageremail, username, name):
     # msg['To'] = useremail , manageremail if manageremail else None
 
     # msg.set_content()
-
 
 
 def Update_DeleteStatus_Table(entraid_table_name, delete_status_table_name):
@@ -169,7 +171,15 @@ def Calculate_Delete_Status(delete_status_df,entraid_status_df):
     deleted_user_count = 0
 
     for row in delete_status_df.itertuples():
-        user_entraid_info = entraid_status_df[entraid_status_df['Username'] == row.Username]
+
+        try:
+            user_entraid_info = entraid_status_df[entraid_status_df['Username'] == row.Username]
+        except IndexError:
+            # If user is not found in the EntraID status table, assume they have already been deleted or are otherwise not active and set their status to 2 (marked for deletion)
+            delete_status_df.at[row.Index, 'DeleteStatus'] = 2
+            delete_status_df.at[row.Index, 'DeleteDate'] = CURRENT_DATE
+            continue
+
         groups_value = user_entraid_info['Groups'].iloc[0] if not user_entraid_info.empty else None
         if pd.isna(groups_value) or not str(groups_value).strip():
             user_entraid_groups = []
@@ -223,6 +233,7 @@ def Calculate_Delete_Status(delete_status_df,entraid_status_df):
     # Upload the updated delete status DataFrame back to the database
     delete_status_df.to_sql(DELETE_STATUS_TABLE_NAME, con=engine, if_exists='replace', index=False, dtype=deletestatus_sql_datatypes())
 
+
 def Delete_Users(delete_status_df):
     """This function deletes users that have been marked for deletion for over 30 days."""
 
@@ -239,6 +250,7 @@ def Delete_Users(delete_status_df):
 
     print(f"Deleted {delete_count} users.")
 
+
 def main():
     entraid_table_name = collect_entraid_table_name()
     delete_status_df = Update_DeleteStatus_Table(entraid_table_name, DELETE_STATUS_TABLE_NAME)
@@ -246,9 +258,10 @@ def main():
     Calculate_Delete_Status(delete_status_df,entraid_status_df)
     Delete_Users(delete_status_df)
 
-# MAIN EXECUTION
 
+# MAIN EXECUTION
 ###############################################################################################
+
 
 if __name__ == "__main__":
     main()

@@ -4,6 +4,8 @@
 # Requires: Powershell 7.0+
 # Description: This file takes an input report from ArcGIS Online (AGOL) and produces a csv of all members with a
 #              fields that identify the user's current affiliation w/ TAMU and their manager (if exists)
+# Expected Runtime: 2-3 Hours (depending on number of users and Graph API response times; generally around 150,000 users)
+
 
 # collect csv
 param(
@@ -15,17 +17,21 @@ $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyI
 Set-Location -Path $scriptDir
 
 
-# Import library for accessing TAMU Identification System
+# Import library for accessing TAMU Identification System - uses OS authentication
 Import-Module Microsoft.Graph.Users
 Connect-MgGraph -Scopes "User.Read.All" -NoWelcome
 
-# Write-Host "input csv path: $($input_csv_path)"
-$input_csv = Import-Csv -Path $input_csv_path
 
+# Cache all EntraID users to minimize Graph calls and create index tables
 Write-Host "Caching EntraID users..."
 $allEntraUsers = Get-MgUser -All -Property Id, UserPrincipalName, Mail, OtherMails, Department, DisplayName
 Write-Host "Cached $($allEntraUsers.Count) EntraID users"
 
+
+# Helper functions for user resolution and data retrieval
+#######################################################################################################
+
+# Function to create a formatted email based on a username (i.e. username@tamu.edu)
 function Format-Email {
     param([string]$username)
     $username = $username -replace '_tamu$', ''
@@ -33,6 +39,7 @@ function Format-Email {
     return "$username@tamu.edu"
 }
 
+# Function to resolve an EntraID user based on a list of formatted emails, using cached indexes for efficient lookup
 function Resolve-EntraUserFromEmails {
     param([array]$emailsToTry)
 
@@ -91,6 +98,7 @@ function Find-AlternateEmail {
     return ""
 }
 
+# Function to find a user's manager information (email and department) based on their EntraID user ID
 function Find-ManagerInfo {
     param([string]$userId)
 
@@ -150,6 +158,7 @@ function Find-ManagerInfo {
     return $result
 }
 
+# Function to find a user's group memberships based on their EntraID user ID
 function Find-GroupMemberships {
     param([string]$userId)
 
@@ -177,6 +186,11 @@ $UserByPrincipal = @{}
 $UserByOtherMail = @{}
 
 $numUsersIndexed = 0
+
+
+# Indexing look to create lookup tables for efficient user resolution during main processing loop
+#########################################################################################################
+
 
 foreach ($entraUser in $allEntraUsers) {
     if ($entraUser.Id) {
@@ -213,8 +227,15 @@ $ResolvedEmailCache = @{}
 $ManagerByUserId = @{}
 $GroupsByUserId = @{}
 
+
+
+# Main loop for handling emails and building EntraID Status table
+#########################################################################################################
+
+# Initialize tables before loop
 $UserTable = @()
 $ErrorUsers = @()
+
 
 $UserTable = $input_csv | ForEach-Object {
 
@@ -293,12 +314,17 @@ $UserTable = $input_csv | ForEach-Object {
     }
 }
 
+
+# Exporting results from above loop
+###########################################################################################################
+
+
 $ErrorUsers = $UserTable | Where-Object { $_.ErrorUser } | Select-Object -ExpandProperty ErrorUser
 $UserTable = $UserTable | Select-Object -ExcludeProperty ErrorUser
 
 # Export results
 $UserTable | Export-Csv -Path ".\reports\AGOL_EntraID_Status.csv" -NoTypeInformation
-$ErrorUsers | Out-File -FilePath ".\reports\error_hist_users.txt"
+$ErrorUsers | Out-File -FilePath ".\reports\error_EntraID_users.txt"
 
 Write-Host "Processing complete:"
 Write-Host "Users Processed: $($UserTable.Count)"

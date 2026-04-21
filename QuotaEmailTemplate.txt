@@ -1,11 +1,14 @@
-Greetings,
+Dear {name},
 
-Our records indicate that the ArcGIS Online account associated with {name} (Username: {username}) has been flagged for deletion due to an update in their status within Texas A&M University's identity management system (i.e., they are a student that has graduated, a staff member who has left, or they are no longer affiliated with the University at-large). As a result, all content related to their account will be deleted 30 days from now.
+Our records indicate that your ArcGIS Online account is currently using {total_storage_mb:.2f} MB of storage, which exceeds the allocated quota of {USER_STORAGE_QUOTA_MB} MB.
 
-If you would like to keep this data hosted on ArcGIS Online, please contact the Texas A&M University GIS Help Desk at tx.ag/GISHelpdesk. Otherwise, please disregard this message.
+Please review your published items and consider removing any unnecessary content or requesting additional credits if needed.
 
-This email was automatically sent to the on-record email associated with the ArcGIS Online account, as well as all previously listed supervisors related to the account.
+If you have any questions or need assistance, please contact the Texas A&M GIS Help Desk at tx.ag/GISHelpDesk.
 
-Thank you,
+This is an automated message sent to the email address associated with ArcGIS Online account {username}. If you believe you received this message in error, please contact the Texas A&M GIS Help Desk.
 
-Texas A&M University GIS Help Desk
+Thank you for your attention to this matter.
+
+Best regards,
+Texas A&M GIS Help Desk

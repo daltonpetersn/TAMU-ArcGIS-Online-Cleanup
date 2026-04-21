@@ -2,6 +2,7 @@
 # Description: This script downloads arcgis online reports and updates the database with the new information. 
 # It uses the ArcGIS API for Python to access the reports and pandas to manipulate the data before updating the database.
 
+
 from arcgis.gis import GIS
 import pandas as pd
 
@@ -16,7 +17,6 @@ import subprocess
 
 import datetime
 import os
-
 
 
 # GLOBAL VARIABLES & INITIALIZATION
@@ -346,6 +346,8 @@ def Catalog_and_Cleanup():
     # clear reports directory
     print("clearing reports directory...")
     for filename in os.listdir(os.path.join(SCRIPT_DIR, 'reports')):
+        if filename.lower().endswith('.md'):
+            continue
         file_path = os.path.join(SCRIPT_DIR, 'reports', filename)
         try:
             if os.path.isfile(file_path):
@@ -365,7 +367,7 @@ def main():
         member_report_title,
     )
 
-    print("script execution complete.")    
+    print("Catalog script execution complete.")    
 
 
 # EXECUTION
