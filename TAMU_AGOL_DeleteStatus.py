@@ -24,7 +24,8 @@ from os import getenv
 from dotenv import load_dotenv
 
 import smtplib
-from email.message import EmailMessage
+from email.mime.text import MIMEText
+
 
 
 # GLOBAL VARIABLES & INITIALIZATION
@@ -53,6 +54,9 @@ else:
 
 SENDER_EMAIL = getenv("SENDER_EMAIL")
 SENDER_PASSWORD = getenv("SENDER_PASSWORD") 
+
+SMTP_PORT = getenv("SMTP_PORT")
+SMTP_SERVER = getenv("SMTP_SERVER")
 
 DELETE_STATUS_TABLE_NAME = getenv("DELETE_STATUS_TABLE_NAME")
 WHITELISTED_ENTRAID_GROUPS_TABLE_NAME = getenv("WHITELISTED_ENTRAID_GROUPS_TABLE_NAME")
@@ -98,31 +102,67 @@ def collect_entraid_table_name():
 # MAIN FUNCTIONS
 
 
-def Email_Delete_Users(useremail, manageremail, username, name):
+def Email_Delete_Users(recipient_email, recipient_manageremail, recipient_username, recipient_name):
     """This function emails the user and their manager (if applicable) to notify them that their account has been marked for deletion."""
 
-    print(f"emailing user {username} to notify them of account deletion...")
-
-    # # Set up the email parameters
-    # msg = EmailMessage()
-    # msg['Subject'] = 'Your ArcGIS Online Account Has been deleted'
-    # msg['From'] = SENDER_EMAIL
-    # msg['To'] = useremail , manageremail if manageremail else None
-
-    # msg.set_content()
+    print(f"emailing user {recipient_username} to notify them of account deletion...")
 
 
-def Email_Flagged_Users(useremail, manageremail, username, name):
-    """This function emails the user and their manager (if applicable) to notify them that their account has been flagged for deletion."""
+    # Construct email content
+    subject = "Your ArcGIS Online Account Has Been Deleted"
+    body = f"""
+    Dear {recipient_name},
 
-    print(f"emailing user {username} to notify them of account flagging...")
-    # # Set up the email parameters
-    # msg = EmailMessage()
-    # msg['Subject'] = 'Action Required: Your ArcGIS Online Account Has Been Flagged for Deletion'
-    # msg['From'] = SENDER_EMAIL
-    # msg['To'] = useremail , manageremail if manageremail else None
+    """
+    try:
+        # Create MIMEText object
+        msg = MIMEText(body)
+        msg['Subject'] = subject
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = recipient_email
+        msg['Cc'] = recipient_manageremail if recipient_manageremail else None
 
-    # msg.set_content()
+        # Send email using SMTP server
+        with smtplib.SMTP(SMTP_SERVER, smtplib.SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+
+        print(f"Email sent to {recipient_username}.")
+    except Exception as e:
+        print(f"Failed to send email to {recipient_username} at {recipient_email}. Error: {e}")
+
+
+def Email_Flagged_Users(recipient_email, recipient_manageremail, recipient_username, recipient_name):
+    """This function emails the user and their manager (if applicable) to notify them that their account has been marked for deletion."""
+
+    print(f"emailing user {recipient_username} to notify them of account flagging...")
+
+
+    # Construct email content
+    subject = "Action Required: Your ArcGIS Online Account Has Been Flagged for Deletion"
+    body = f"""
+    Dear {recipient_name},
+
+    """
+    try:
+        # Create MIMEText object
+        msg = MIMEText(body)
+        msg['Subject'] = subject
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = recipient_email
+        msg['Cc'] = recipient_manageremail if recipient_manageremail else None
+
+        # Send email using SMTP server
+        with smtplib.SMTP(SMTP_SERVER, smtplib.SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.send_message(msg)
+
+        print(f"Email sent to {recipient_username}.")
+    except Exception as e:
+        print(f"Failed to send email to {recipient_username} at {recipient_email}. Error: {e}")
+
 
 
 def Update_DeleteStatus_Table(entraid_table_name, delete_status_table_name):
@@ -255,8 +295,11 @@ def main():
     entraid_table_name = collect_entraid_table_name()
     delete_status_df = Update_DeleteStatus_Table(entraid_table_name, DELETE_STATUS_TABLE_NAME)
     entraid_status_df = pd.read_sql(text(f"SELECT * FROM AGOL_EntraID_Status"), engine)
+
     Calculate_Delete_Status(delete_status_df,entraid_status_df)
     Delete_Users(delete_status_df)
+
+    
 
 
 # MAIN EXECUTION

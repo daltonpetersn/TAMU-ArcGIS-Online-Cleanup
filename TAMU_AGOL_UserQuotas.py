@@ -1,5 +1,5 @@
 # File Name: TAMU_AGOL_UserQuotas.py
-# Decription: This script accesses the AGOL catalog database, calculates all users that have a total amount of feature
+# Description: This script accesses the AGOL catalog database, calculates all users that have a total amount of feature
 #             storage that exceeds the specified quota (based on assigned AGOL credits), and determines their account's
 #             deletion status and sends an email to ask them to remove content or request more credits.
 # Author: Dalton Peterson
@@ -178,7 +178,7 @@ def main():
     over_quota_csv = os.path.join(reports_dir, f'UsersOverQuota_{CURRENT_DATE.strftime("%Y_%m_%d")}.csv')
     over_quota_df.to_csv(over_quota_csv, index=False)
 
-    # email_over_quota_users(over_quota_users)
+    email_over_quota_users(over_quota_users)
 
 if __name__ == "__main__":
     main()

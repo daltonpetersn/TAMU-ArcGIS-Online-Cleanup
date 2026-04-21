@@ -6,4 +6,4 @@ reports/*.txt
 .env
 
 # ignore email templates
-*EmailTemplate.txt
+/*EmailTemplate.txt

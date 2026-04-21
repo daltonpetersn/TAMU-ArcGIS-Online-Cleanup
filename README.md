@@ -1,6 +1,7 @@
 # Texas A&M ArcGIS Online Cleanup
 
-Dalton Peterson - Technician, Texas A&M GIS Help Desk
+Author: Dalton Peterson - Technician, Texas A&M GIS Help Desk
+Updated: 04/21/2026
 
 This repo represents current efforts to automate the process of managing Texas A&M's ArcGIS Online Enterprise. It includes scripts and configurables to crate a catalog of all users on Texas A&M's AGOL currently and previously. Cataloging, management and quering of users is done using a MS SQL Server Database hosted locally on the device running the scripts.
 
@@ -57,6 +58,28 @@ These scripts take Generated ArcGIS Online Reports, generates a CSV of users to 
 7) Whitelisted_EntraID_Groups
     - List of EntraID security group names and ID's that are "whitelisted" (used to identify a current user; i.e. Group Name = Student, Group ID = 1234)
     - Name for this table defined in .env
+
+# Scripts & Sequence
+
+TAMU_AGOL_Main.py calls all other scripts in the following order:
+
+1) TAMU_AGOL_Catalog.py
+    - Takes previous member, items, and entraid reports (if still present in Database), and adds them to their associated history tables.
+    - Collects new AGOL reports and adds them as database tables.
+    - Uses current member report to generate new EntraID Status table (Using TAMU_AGOL_EntraID.ps1) and adds it as a new table in the database.
+
+2) TAMU_AGOL_DeleteStatus.py
+    - Uses current member and entraid reports to determine which users should be flagged for deletion and which ones have been flagged for a month and should be deleted.
+    - Emails users and their associated managers notifying them if they have been scheduled to be deleted.
+
+3) TAMU_AGOL_DeleteUsers.py
+    - Collects all users identified for deletion and adds their username to a csv to use to delete them.
+    - Also adds all users who have 0 items published.
+
+4) TAMU_AGOL_UserQuotas.py
+    - Finds all users that exceed the allowed feature storage per user and emails them asking them to reduce storage use.
+
+
 
 
 
