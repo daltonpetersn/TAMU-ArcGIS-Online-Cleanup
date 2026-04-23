@@ -1,10 +1,13 @@
 # Getting started - Texas A&M ArcGIS Online (AGOL) Cleanup
 
 Author: Dalton Peterson - GIST '26
+
 Texas A&M GIS Help Desk
+
 Last updated: April 2026
 
 This is a step-by-step guide to setting up the correct database structure and installing the correct dependencies for managing Texas A&M's ArcGIS Online credit usage. It is designed to on-board future student employees in the GIS Help Desk (GIST undergraduates) that will take over the project.
+
 
 **Requirements:**
 
@@ -14,9 +17,9 @@ This is a step-by-step guide to setting up the correct database structure and in
 - Microsoft Visual Studio Code
 
 
-## 1. Configuring Database Tables
+## I. Configuring Database Tables
 
-### 1a. Installing Microsoft SQL Server 2025 + Management Studio 22
+### I.a. Installing Microsoft SQL Server 2025 + Management Studio 22
 
 Microsoft SQL Server is the main structure used to host the database tables for this project. As of April 2026, the project is configured to have the DB stored on localhost (on a personal computer, not a dedicated, separate server).
 
@@ -45,7 +48,7 @@ Microsoft SQL Server is the main structure used to host the database tables for 
     - None of the "optional" installation options listed in the steps are required for this project
 
 
-### 1b. Recovering Database from a backup (.bak) file
+### I.b. Recovering Database from a backup (.bak) file
 
 
 6. Locate the .bak file. It should be provided for you from someone working in the GIS Help Desk. Save it to an easily accessible location
@@ -88,14 +91,14 @@ Microsoft SQL Server is the main structure used to host the database tables for 
     ![SMSS with a Restored Backup of the Database](guides/images/ssms_dbinstalled.png)
 
 
-## 2. Configuring ArcGIS Pro Python Environment
+## II. Configuring ArcGIS Pro Python Environment
 
 Because these scripts use the proprietary Esri ArcGIS API for Python, the Python environment that comes with installation of ArcGIS Pro needs to be used. There is also currently one additional library that needs to be installed ()
 
 A Python "Environment" is basically a specific installation of Python. Since Python can be installed multiple times on a computer, you have to select the correct "instance" of Python that is installed on a computer in order to access the specific add-ons (libraries) that are installed with that specific Python instance.
 
 
-### 2a. Cloning ArcGIS Pro Python Environment
+### II.a. Cloning ArcGIS Pro Python Environment
 
 1. Open ArcGIS Pro and sign in if prompted
 
@@ -134,7 +137,7 @@ A Python "Environment" is basically a specific installation of Python. Since Pyt
     - Press enter
 
 
-### 2b. Installing packages with pip
+### II.b. Installing packages with pip
 
 8. Now we need to install the extra libraries needed for the scripts in this repo. At the top of the page, select "Terminal", and then press "New Terminal"
 
@@ -143,7 +146,7 @@ A Python "Environment" is basically a specific installation of Python. Since Pyt
     - python -m pip install python-dotenv
 
 
-## 3. Installing PowerShell 7 and Microsoft Graph library
+## III. Installing PowerShell 7 and Microsoft Graph library
 
 PowerShell 5 comes with Windows, however, this project uses PowerShell version 7+ which you need to install separately, as well as the Microsoft Graph Module which is used to access TAMU's identity management system (EntraID).
 
@@ -157,7 +160,7 @@ PowerShell 5 comes with Windows, however, this project uses PowerShell version 7
 
 4. Once installed, type "Get-InstalledModule Microsoft.Graph" (without the quotes) and press enter to verify its installation
 
-## 4. Configuring .env
+## IV. Configuring .env
 
 This repo uses a .env file to define certain paramaters that are shared across all scripts. Because it include sensitive information, (keys, emails/passwords, etc.), they are ignored by Git and GitHub. There is a template present in this repo that you can use to quickly create your own .env, however.
 

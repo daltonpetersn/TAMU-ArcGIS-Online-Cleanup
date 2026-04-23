@@ -14,7 +14,7 @@ from urllib.parse import quote_plus
 
 import pandas as pd
 
-from sqlalchemy import create_engine, text, Float
+from sqlalchemy import create_engine, text
 from sqlalchemy.dialects.mssql import NVARCHAR, DATETIME, BIT, INTEGER
 
 import datetime
@@ -22,10 +22,6 @@ import os
 
 from os import getenv
 from dotenv import load_dotenv
-
-import smtplib
-from email.mime.text import MIMEText
-
 
 
 # GLOBAL VARIABLES & INITIALIZATION
@@ -98,6 +94,26 @@ def collect_entraid_table_name():
 
     return entraid_table_name
 
+def get_empty_users(member_table_name, item_table_name):
+    """This function queries the AGOL catalog database to find all users that have 0 items published.
+    Returns:
+        empty_users (list): A list of usernames that have 0 items published.
+    """
+    print('Querying database for users with 0 items published...')
+
+    query = f"""
+    SELECT m.Username
+    FROM {member_table_name} m
+    LEFT JOIN {item_table_name} i ON m.Username = i.Owner
+    WHERE i.[Item ID] IS NULL
+    """
+    with engine.connect() as connection:
+        result = connection.execute(text(query))
+        empty_users = [row[0] for row in result.fetchall()]
+    
+    print(f'Found {len(empty_users)} users with 0 items published.')
+
+    return empty_users
 
 # MAIN FUNCTIONS
 
@@ -136,7 +152,7 @@ def Update_DeleteStatus_Table(entraid_table_name, delete_status_table_name):
 
 
 
-def Calculate_Delete_Status(delete_status_df,entraid_status_df):
+def Calculate_Delete_Status(delete_status_df,entraid_status_df, empty_users):
     """This function calculates the deletion status for each user based on their EntraID status and updated dates, updates the database, and sends notification emails as needed."""
 
     print ("Calculating delete status for users in DeleteStatus table...")
@@ -172,6 +188,13 @@ def Calculate_Delete_Status(delete_status_df,entraid_status_df):
             delete_status_df.at[row.Index, 'DeleteDate'] = None
             unflagged_user_count += 1
             print(f"User {row.Username} has an override enabled. Setting DeleteStatus to 0 and skipping further checks.")
+
+        # Delete all users with 0 items published regardless of EntraID Status, as they can automatically remake their account by logging into ArcGIS Pro.
+        elif row.Username in empty_users:
+            delete_status_df.at[row.Index, 'DeleteStatus'] = 2
+            delete_status_df.at[row.Index, 'FlagDate'] = CURRENT_DATE
+            flagged_user_count += 1
+            print(f"User {row.Username} has 0 items published. Setting DeleteStatus to 2.")
 
         # Determine if an unflagged user should be flagged based on EntraID affiliations
         elif row.DeleteStatus == 0:

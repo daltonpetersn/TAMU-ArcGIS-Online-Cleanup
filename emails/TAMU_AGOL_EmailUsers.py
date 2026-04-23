@@ -144,6 +144,8 @@ def Email_Delete_Users(user_info_df):
 
     print(f"Sending deletion notification emails to {len(delete_user_info_df)} users...")
 
+    # DRY_RUN mode to test logic. This block only runs if DRY_RUN is set to True, allowing you to see which emails would be sent without actually sending them. It will print the intended recipient and cc count for each email.
+    
     if not SEND_EMAILS:
         for _, row in delete_user_info_df.iterrows():
             recipient_username = row["Username"]

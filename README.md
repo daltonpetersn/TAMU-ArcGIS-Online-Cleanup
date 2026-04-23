@@ -1,13 +1,21 @@
 # Texas A&M ArcGIS Online Cleanup
 
 Author: Dalton Peterson - Technician, Texas A&M GIS Help Desk
-Updated: 04/21/2026
+
+Last Updated: April 2026
+
+Managed by Texas A&M GIS Help Desk: tx.ag/GISHelpDesk
+
+## Background
 
 This repo represents current efforts to automate the process of managing Texas A&M's ArcGIS Online Enterprise. It includes scripts and configurables to crate a catalog of all users on Texas A&M's AGOL currently and previously. Cataloging, management and quering of users is done using a MS SQL Server Database hosted locally on the device running the scripts.
 
 These scripts take Generated ArcGIS Online Reports, generates a CSV of users to delete based on University affiliation, and also notifies users of excessive storage usage. It is designed to run automatically after each semester at Texas A&M.
 
-# Dependencies
+To learn more about Texas A&M's ArcGIS Online policies, visit: https://service.tamu.edu/TDClient/36/Portal/KB/ArticleDet?ID=1701
+
+
+## Dependencies
 
 1) ArcGIS Pro 3.3 with ArcGIS API for Python
 
@@ -28,7 +36,8 @@ These scripts take Generated ArcGIS Online Reports, generates a CSV of users to 
 6) Microsoft EntraID and Mg Graph Users (PowerShell 7.0+)
     - Texas A&M uses EntraID for identity management, so this script accesses the Mg Graph library in PowerShell 7.0 to document users and their affiliation within the University. This is used to determine whether or not to delete a user.
 
-# Database Tables
+
+## Database Tables
 
 1) OrganizationItems_date
     - Mirror of the most recent ArcGIS Item Report
@@ -59,6 +68,7 @@ These scripts take Generated ArcGIS Online Reports, generates a CSV of users to 
     - List of EntraID security group names and ID's that are "whitelisted" (used to identify a current user; i.e. Group Name = Student, Group ID = 1234)
     - Name for this table defined in .env
 
+
 # Scripts & Sequence
 
 TAMU_AGOL_Main.py calls all other scripts in the following order:
@@ -80,6 +90,13 @@ TAMU_AGOL_Main.py calls all other scripts in the following order:
     - Finds all users that exceed the allowed feature storage per user and emails them asking them to reduce storage use.
 
 
+## Credits
+
+Daniel W. Goldberg, PhD (Texas A&M University, Dept. of Geography): Project manager, GIS Help Desk Lead
+
+Dalton Peterson (Texas A&M University, Dept. of Geography): Lead developer, GIS Help Desk Technician
+
+Sam Palmer, PhD (University of Florida): Inspiration for User/Item Database structure
 
 
 

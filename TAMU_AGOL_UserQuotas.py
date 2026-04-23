@@ -17,9 +17,6 @@ from dotenv import load_dotenv
 import datetime
 import os
 
-import smtplib
-from email.mime.text import MIMEText
-
 from arcgis.gis import GIS
 
 

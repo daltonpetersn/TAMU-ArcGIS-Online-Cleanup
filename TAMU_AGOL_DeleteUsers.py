@@ -68,29 +68,6 @@ def collect_table_names():
     return member_table_name, item_table_name
 
 
-
-def get_empty_users(member_table_name, item_table_name):
-    """This function queries the AGOL catalog database to find all users that have 0 items published.
-    Returns:
-        empty_users (list): A list of usernames that have 0 items published.
-    """
-    print('Querying database for users with 0 items published...')
-
-    query = f"""
-    SELECT m.Username
-    FROM {member_table_name} m
-    LEFT JOIN {item_table_name} i ON m.Username = i.Owner
-    WHERE i.[Item ID] IS NULL
-    """
-    with engine.connect() as connection:
-        result = connection.execute(text(query))
-        empty_users = [row[0] for row in result.fetchall()]
-    
-    print(f'Found {len(empty_users)} users with 0 items published.')
-
-    return empty_users
-
-
 def get_users_tagged_for_deletion():
     """This function queries the AGOL catalog database to find all users that have been tagged for deletion (DeleteStatus = 2).
     Returns:
@@ -114,11 +91,10 @@ def get_users_tagged_for_deletion():
 
 def main():
     member_table_name, item_table_name = collect_table_names()
-    empty_users = get_empty_users(member_table_name, item_table_name)
     users_tagged_for_deletion = get_users_tagged_for_deletion()
 
     # Combine the two lists and remove duplicates
-    users_to_delete = set(empty_users + users_tagged_for_deletion)
+    users_to_delete = set(users_tagged_for_deletion)
 
     reports_dir = os.path.join(SCRIPT_DIR, 'reports')
     
