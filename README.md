@@ -96,7 +96,7 @@ Daniel W. Goldberg, PhD (Texas A&M University, Dept. of Geography): Project mana
 
 Dalton Peterson (Texas A&M University, Dept. of Geography): Lead developer, GIS Help Desk Technician
 
-Sam Palmer, PhD (University of Florida): Inspiration for User/Item Database structure
+Sam Palmer (University of Florida, GeoPlan Center): Inspiration for User/Item Database structure
 
 
 
