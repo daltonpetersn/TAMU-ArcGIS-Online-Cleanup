@@ -119,55 +119,6 @@ def calculate_user_storage_quota(member_table_name, item_table_name):
     return over_quota_users
 
 
-def email_over_quota_users(over_quota_users):
-    """This function sends an email notification to users that exceed the storage quota, asking them to reduce their storage usage or request more credits.
-    Args:
-        over_quota_users (DataFrame): A DataFrame containing users that exceed the storage quota, along with their total storage used.
-    """
-    print(f"Sending email notifications to users that exceed the storage quota of {USER_STORAGE_QUOTA_MB} MB...")
-    for index, row in over_quota_users.iterrows():
-        recipient_username = row['Username']
-        recipient_name = row['Name']
-        recipient_email = row['Email']
-        total_feature_storage_mb = row['total_feature_storage_mb']
-
-        # Construct email content
-        subject = "Action Needed: ArcGIS Online Storage Quota Exceeded"
-        body = f"""
-        Dear {recipient_name},
-
-        Our records indicate that your ArcGIS Online account is currently using {total_feature_storage_mb:.2f} MB of storage, which exceeds the allocated quota of {USER_STORAGE_QUOTA_MB} MB.
-
-        Please review your published items and consider removing any unnecessary content or requesting additional credits if needed.
-
-        If you have any questions or need assistance, please contact the Texas A&M GIS Help Desk at tx.ag/GISHelpDesk.
-
-        This is an automated message sent to the email address associated with ArcGIS Online account {recipient_username}. If you believe you received this message in error, please contact the Texas A&M GIS Help Desk.
-
-        Thank you for your attention to this matter.
-
-        Best regards,
-        Texas A&M GIS Help Desk
-        """
-
-        try:
-            # Create MIMEText object
-            msg = MIMEText(body)
-            msg['Subject'] = subject
-            msg['From'] = SENDER_EMAIL
-            msg['To'] = recipient_email
-
-            # Send email using SMTP server
-            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                server.starttls()
-                server.login(SENDER_EMAIL, SENDER_PASSWORD)
-                server.send_message(msg)
-
-            print(f"Email sent to {recipient_username} at {recipient_email} regarding storage quota.")
-        except Exception as e:
-            print(f"Failed to send email to {recipient_username} at {recipient_email}. Error: {e}")
-
-
 def main():
     member_table_name, item_table_name = collect_table_names()
     over_quota_users = calculate_user_storage_quota(member_table_name, item_table_name)
@@ -178,7 +129,7 @@ def main():
     over_quota_csv = os.path.join(reports_dir, f'UsersOverQuota_{CURRENT_DATE.strftime("%Y_%m_%d")}.csv')
     over_quota_df.to_csv(over_quota_csv, index=False)
 
-    email_over_quota_users(over_quota_users)
+    # email_over_quota_users(over_quota_users)
 
 if __name__ == "__main__":
     main()

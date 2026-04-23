@@ -26,8 +26,10 @@ CURRENT_DATE = datetime.datetime.now().date()
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(SCRIPT_DIR, '.env')
 
+# Load environment variables from .env file
 load_dotenv(dotenv_path=ENV_PATH, override=True)
 
+# Get SQL connection string from environment variable and create SQLAlchemy engine
 sql_connection_string = (getenv("SQL_CONNECTION_STRING") or "").strip().strip('"').strip("'")
 if not sql_connection_string:
     raise RuntimeError(
@@ -45,6 +47,7 @@ else:
 gis = GIS("home")
 print(f'connected to ArcGIS online as {gis.users.me.username}')
 
+# Create reports directory if it doesn't exist
 os.makedirs(os.path.join(SCRIPT_DIR, 'reports'), exist_ok=True)
 
 

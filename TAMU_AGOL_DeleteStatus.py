@@ -102,68 +102,6 @@ def collect_entraid_table_name():
 # MAIN FUNCTIONS
 
 
-def Email_Delete_Users(recipient_email, recipient_manageremail, recipient_username, recipient_name):
-    """This function emails the user and their manager (if applicable) to notify them that their account has been marked for deletion."""
-
-    print(f"emailing user {recipient_username} to notify them of account deletion...")
-
-
-    # Construct email content
-    subject = "Your ArcGIS Online Account Has Been Deleted"
-    body = f"""
-    Dear {recipient_name},
-
-    """
-    try:
-        # Create MIMEText object
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = recipient_email
-        msg['Cc'] = recipient_manageremail if recipient_manageremail else None
-
-        # Send email using SMTP server
-        with smtplib.SMTP(SMTP_SERVER, smtplib.SMTP_PORT) as server:
-            server.starttls()
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.send_message(msg)
-
-        print(f"Email sent to {recipient_username}.")
-    except Exception as e:
-        print(f"Failed to send email to {recipient_username} at {recipient_email}. Error: {e}")
-
-
-def Email_Flagged_Users(recipient_email, recipient_manageremail, recipient_username, recipient_name):
-    """This function emails the user and their manager (if applicable) to notify them that their account has been marked for deletion."""
-
-    print(f"emailing user {recipient_username} to notify them of account flagging...")
-
-
-    # Construct email content
-    subject = "Action Required: Your ArcGIS Online Account Has Been Flagged for Deletion"
-    body = f"""
-    Dear {recipient_name},
-
-    """
-    try:
-        # Create MIMEText object
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = recipient_email
-        msg['Cc'] = recipient_manageremail if recipient_manageremail else None
-
-        # Send email using SMTP server
-        with smtplib.SMTP(SMTP_SERVER, smtplib.SMTP_PORT) as server:
-            server.starttls()
-            server.login(SENDER_EMAIL, SENDER_PASSWORD)
-            server.send_message(msg)
-
-        print(f"Email sent to {recipient_username}.")
-    except Exception as e:
-        print(f"Failed to send email to {recipient_username} at {recipient_email}. Error: {e}")
-
-
 
 def Update_DeleteStatus_Table(entraid_table_name, delete_status_table_name):
     """This function retrieves the DeleteStatus and Current OrganizationMembers tables from the database. If there is a member in the OrganizationMembers table that is not in the DeleteStatus table, they are added with a DeleteStatus of 0. This function serves to add newly created accounts to the DeleteStatus table so that they can be monitored for deletion if needed."""
@@ -240,7 +178,6 @@ def Calculate_Delete_Status(delete_status_df,entraid_status_df):
             if user_entraid_status == 0:
                 delete_status_df.at[row.Index, 'DeleteStatus'] = 1
                 delete_status_df.at[row.Index, 'FlagDate'] = CURRENT_DATE
-                Email_Flagged_Users(row.WorkingEmail, row.ManagerEmail, row.Username, row.Name)
                 unflagged_user_count += 1
             elif user_entraid_status == 1:
                 if any(group_id in whitelisted_group_ids for group_id in user_entraid_groups):
@@ -252,14 +189,12 @@ def Calculate_Delete_Status(delete_status_df,entraid_status_df):
                 else:
                     delete_status_df.at[row.Index, 'DeleteStatus'] = 1
                     delete_status_df.at[row.Index, 'FlagDate'] = CURRENT_DATE
-                    Email_Flagged_Users(row.WorkingEmail, row.ManagerEmail, row.Username, row.Name)
                     flagged_user_count += 1
         
         # Determine if flagged users should be marked for deletion based on how long they have been flagged
         elif row.DeleteStatus == 1 and row.FlagDate and (CURRENT_DATE - pd.Timestamp(row.FlagDate).date()).days >= 30:
             delete_status_df.at[row.Index, 'DeleteStatus'] = 2
             delete_status_df.at[row.Index, 'DeleteDate'] = CURRENT_DATE
-            Email_Delete_Users(row.WorkingEmail, row.ManagerEmail, row.Username, row.Name)
             deleted_user_count += 1
         else:
             unflagged_user_count += 1 if row.DeleteStatus == 0 else 0
